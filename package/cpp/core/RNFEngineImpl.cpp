@@ -22,6 +22,7 @@
 #include <filament/Viewport.h>
 #include <utils/Entity.h>
 #include <utils/EntityManager.h>
+#include <vector>
 
 #include <gltfio/Animator.h>
 #include <gltfio/MaterialProvider.h>
@@ -72,16 +73,17 @@ EngineImpl::EngineImpl(std::shared_ptr<Dispatcher> rendererDispatcher, std::shar
   resourceLoaderPtr->addTextureProvider("image/ktx2", ktx2Provider);
   resourceLoaderPtr->addTextureProvider("image/webp", webpProvider);
 
-  _resourceLoader = References<gltfio::ResourceLoader>::adoptEngineRef(
-      engine, resourceLoaderPtr,
-      [stbProvider, ktx2Provider, webpProvider, rendererDispatcher](std::shared_ptr<Engine> engine, gltfio::ResourceLoader* resourceLoader) {
-        Logger::log(TAG, "Destroying resource loader...");
-        resourceLoader->evictResourceData();
-        delete resourceLoader;
-        delete stbProvider;
-        delete ktx2Provider;
-        delete webpProvider;
-      });
+  _resourceLoader =
+      References<gltfio::ResourceLoader>::adoptEngineRef(engine, resourceLoaderPtr,
+                                                         [stbProvider, ktx2Provider, webpProvider, rendererDispatcher](
+                                                             std::shared_ptr<Engine> engine, gltfio::ResourceLoader* resourceLoader) {
+                                                           Logger::log(TAG, "Destroying resource loader...");
+                                                           resourceLoader->evictResourceData();
+                                                           delete resourceLoader;
+                                                           delete stbProvider;
+                                                           delete ktx2Provider;
+                                                           delete webpProvider;
+                                                         });
 
   // Setup filament:
   _renderer = createRenderer(displayRefreshRate);
@@ -148,17 +150,18 @@ void EngineImpl::surfaceSizeChanged(int width, int height) {
   }
 }
 
-std::shared_ptr<SwapChain> EngineImpl::createSwapChain(void* nativeWindow, u_int64_t flags = 0) {
+std::shared_ptr<SwapChain> EngineImpl::createSwapChain(void* nativeWindow, u_int64_t flags, std::shared_ptr<void> nativeWindowOwner) {
   Logger::log(TAG, "Creating swapchain ...");
   auto dispatcher = _rendererDispatcher;
   return References<SwapChain>::adoptEngineRef(_engine, _engine->createSwapChain(nativeWindow, flags),
-                                               [dispatcher](std::shared_ptr<Engine> engine, SwapChain* swapChain) {
-                                                 dispatcher->runAsync([engine, swapChain]() {
+                                               [dispatcher, nativeWindowOwner](std::shared_ptr<Engine> engine, SwapChain* swapChain) {
+                                                 dispatcher->runAsync([engine, swapChain, nativeWindowOwner]() {
                                                    Logger::log(TAG, "Destroying swapchain...");
                                                    engine->destroy(swapChain);
                                                    // Required to ensure we don't return before Filament is done executing the
-                                                   // destroySwapChain command, otherwise Android might destroy the Surface
-                                                   // too early
+                                                   // destroySwapChain command. Only then may the native window go away: createSwapChain is
+                                                   // queued on the backend thread as well, and a swapchain released right after creation
+                                                   // would otherwise hand it an already freed window.
                                                    engine->flushAndWait();
                                                    Logger::log(TAG, "Destroyed swapchain!");
                                                  });
@@ -363,6 +366,32 @@ std::shared_ptr<RenderableManagerWrapper> EngineImpl::createRenderableManager() 
   return std::make_shared<RenderableManagerWrapper>(renderableManagerImpl);
 }
 
+/**
+ * Filament aborts when a material instance is destroyed while a renderable still references it.
+ * JS may release a material before (or without) destroying the entities built from it, e.g. when a
+ * component unmounts while its entity is still being created, so detach those renderables first.
+ */
+static void detachRenderablesUsing(Engine& engine, MaterialInstance* materialInstance) {
+  RenderableManager& renderableManager = engine.getRenderableManager();
+  size_t count = renderableManager.getComponentCount();
+  const utils::Entity* entities = renderableManager.getEntities();
+  std::vector<utils::Entity> stillUsingInstance;
+  for (size_t i = 0; i < count; i++) {
+    RenderableManager::Instance renderable = renderableManager.getInstance(entities[i]);
+    size_t primitiveCount = renderableManager.getPrimitiveCount(renderable);
+    for (size_t primitive = 0; primitive < primitiveCount; primitive++) {
+      if (renderableManager.getMaterialInstanceAt(renderable, primitive) == materialInstance) {
+        stillUsingInstance.push_back(entities[i]);
+        break;
+      }
+    }
+  }
+  for (utils::Entity entity : stillUsingInstance) {
+    Logger::log("EngineImpl", "Renderable still uses the material instance being destroyed, detaching it...");
+    renderableManager.destroy(entity);
+  }
+}
+
 std::shared_ptr<MaterialWrapper> EngineImpl::createMaterial(std::shared_ptr<FilamentBuffer> materialBuffer) {
   std::unique_lock lock(_mutex);
   auto buffer = materialBuffer->getBuffer();
@@ -378,6 +407,7 @@ std::shared_ptr<MaterialWrapper> EngineImpl::createMaterial(std::shared_ptr<Fila
         dispatcher->runAsync([engine, material, sharedThis]() {
           std::unique_lock lock(sharedThis->_mutex);
           Logger::log(TAG, "Destroying material...");
+          detachRenderablesUsing(*engine, material->getDefaultInstance());
           engine->destroy(material);
         });
       });
@@ -391,7 +421,8 @@ std::shared_ptr<MaterialWrapper> EngineImpl::createMaterial(std::shared_ptr<Fila
           for (auto& materialInstanceWrapper : pMaterialImpl->getInstances()) {
             std::unique_lock lock(sharedThis->_mutex);
             MaterialInstance* materialInstance = materialInstanceWrapper->getMaterialInstance();
-            // Note: we should only destroy a material instance when no-one is using it anymore
+            // A material instance can only be destroyed once no renderable uses it anymore
+            detachRenderablesUsing(*engine, materialInstance);
             engine->destroy(materialInstance);
           }
 
