@@ -50,6 +50,8 @@ try {
   }
   if (await nativeManifest(staging) !== upstreamNativeManifest) throw new Error('Fork overlay changed bundled upstream native libraries or headers')
   await cp(path.join(root, 'README.md'), path.join(staging, 'README.md'))
+  await cp(path.join(root, 'LICENSE'), path.join(staging, 'LICENSE'))
+  await cp(path.join(root, 'LICENSE'), path.join(staging, 'LICENSE'))
   await rm(path.join(staging, 'lib'), { recursive: true, force: true })
   console.log(run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], toolDirectory).trim())
   await symlink(path.join(toolDirectory, 'node_modules'), path.join(staging, 'node_modules'), 'dir')
@@ -69,7 +71,7 @@ try {
   const unpacked = path.join(verification, 'package')
   if (await nativeManifest(unpacked) !== upstreamNativeManifest) throw new Error('Packed native libraries/headers differ from upstream')
   const manifest = JSON.parse(await readFile(path.join(unpacked, 'package.json'), 'utf8'))
-  for (const filename of [manifest.main + '.js', manifest.module + '.js', manifest.types, manifest['react-native'] + '.ts', manifest.codegenConfig.jsSrcsDir, 'LICENSE', 'README.md', 'assets']) {
+  for (const filename of [manifest.main + '.js', manifest.module + '.js', manifest.types, manifest['react-native'] + '.tsx', manifest.codegenConfig.jsSrcsDir, 'LICENSE', 'README.md', 'assets']) {
     await access(path.join(unpacked, filename))
   }
   const sha256 = createHash('sha256').update(await readFile(artifact)).digest('hex')
