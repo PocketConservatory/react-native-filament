@@ -25,6 +25,8 @@ interface TestHybridObject {
 }
 
 export interface TFilamentProxy {
+  /** Material ABI of the installed native binding; absent in older binaries. */
+  getFilamentMaterialVersion?(): number
   /**
    * Asynchronously loads the the given asset into a ByteBuffer.
    * @param path A web URL (http:// or https://), local file (file://) or resource ID. (Only resource ID supported for now)

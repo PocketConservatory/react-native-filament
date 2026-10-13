@@ -7,6 +7,17 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_CXX_STANDARD 17)
 
 set(FILAMENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/filament")
+if(TONIC_FILAMENT_ANDROID_DIR)
+    set(FILAMENT_DIR "${TONIC_FILAMENT_ANDROID_DIR}")
+    if(NOT EXISTS "${FILAMENT_DIR}/include/filament/MaterialEnums.h" OR
+       NOT EXISTS "${FILAMENT_DIR}/lib/${ANDROID_ABI}/libfilament.a")
+        message(FATAL_ERROR "Custom Filament engine is incomplete for ${ANDROID_ABI}: ${FILAMENT_DIR}")
+    endif()
+    file(READ "${FILAMENT_DIR}/include/filament/MaterialEnums.h" FILAMENT_MATERIAL_ENUMS)
+    if(NOT FILAMENT_MATERIAL_ENUMS MATCHES "MATERIAL_VERSION = 77;")
+        message(FATAL_ERROR "The custom avatar engine must use Filament material ABI 77")
+    endif()
+endif()
 set(BULLET3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/bullet3")
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
