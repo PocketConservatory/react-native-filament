@@ -51,7 +51,6 @@ try {
   if (await nativeManifest(staging) !== upstreamNativeManifest) throw new Error('Fork overlay changed bundled upstream native libraries or headers')
   await cp(path.join(root, 'README.md'), path.join(staging, 'README.md'))
   await cp(path.join(root, 'LICENSE'), path.join(staging, 'LICENSE'))
-  await cp(path.join(root, 'LICENSE'), path.join(staging, 'LICENSE'))
   await rm(path.join(staging, 'lib'), { recursive: true, force: true })
   console.log(run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], toolDirectory).trim())
   await symlink(path.join(toolDirectory, 'node_modules'), path.join(staging, 'node_modules'), 'dir')
