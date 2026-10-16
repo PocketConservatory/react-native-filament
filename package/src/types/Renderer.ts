@@ -48,6 +48,29 @@ export interface FrameRateOptions {
  * A `Renderer` generates drawing commands from a `View`, itself containing a Scene description.
  */
 export interface Renderer extends PointerHolder {
+  /** Starts a bounded on-device alpha WebP export to an absolute cache path. */
+  beginWebPExport(path: string, width: number, height: number, maxFrames: number): void
+  /** Starts independent full-frame encoding with ordered muxing; up to eight frames can encode concurrently. */
+  beginParallelWebPExport(path: string, width: number, height: number, maxFrames: number): void
+  /** Captures at source dimensions and resizes with alpha weighting on native encoder workers. */
+  beginResizedParallelWebPExport(
+    path: string,
+    captureWidth: number,
+    captureHeight: number,
+    outputWidth: number,
+    outputHeight: number,
+    maxFrames: number
+  ): void
+  /** Returns peak simultaneous independent encoder calls for the current or completed export. */
+  getWebPExportPeakEncodingConcurrency(): number
+  /** Returns the native bound on outstanding GPU readback/encode jobs. */
+  getWebPExportMaxPendingFrames(): number
+  /** Queues readback before endFrame; resolves after ordered encoding, with at most eight outstanding jobs. */
+  captureWebPFrame(timestampMs: number): Promise<void>
+  /** Ends the final frame at timestampMs and returns the completed file URI. */
+  finishWebPExport(timestampMs: number): Promise<string>
+  /** Cancels pending output; in-flight readback retains its own native resources. */
+  cancelWebPExport(): void
   setFrameRateOptions: (options: FrameRateOptions) => void
 
   /**

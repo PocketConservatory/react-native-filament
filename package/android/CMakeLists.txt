@@ -2,6 +2,24 @@ project(RNFilament)
 cmake_minimum_required(VERSION 3.9.0)
 
 set(PACKAGE_NAME "react-native-filament")
+include(FetchContent)
+set(WEBP_BUILD_ANIM_UTILS OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_CWEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_DWEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_GIF2WEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_IMG2WEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_VWEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_WEBPINFO OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_WEBPMUX OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_LIBWEBPMUX ON CACHE BOOL "" FORCE)
+set(WEBP_BUILD_WEBP_JS OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+FetchContent_Declare(tonic_webp
+  URL https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz
+  URL_HASH SHA256=e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564)
+FetchContent_MakeAvailable(tonic_webp)
 set(BUILD_DIR ${CMAKE_SOURCE_DIR}/build)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -82,6 +100,7 @@ add_library(
     ../cpp/core/RNFFilamentInstanceWrapper.cpp
     ../cpp/core/RNFLightManagerWrapper.cpp
     ../cpp/core/RNFRendererWrapper.cpp
+    ../cpp/core/RNFWebPExport.cpp
 
     # Filament Utils
     ../cpp/core/utils/RNFEntityWrapper.cpp
@@ -153,6 +172,9 @@ else()
 endif()
 
 # Link with RNWC:
+target_link_libraries(${PACKAGE_NAME} libwebpmux webp)
+target_include_directories(${PACKAGE_NAME} PRIVATE "${tonic_webp_SOURCE_DIR}/src")
+target_link_options(${PACKAGE_NAME} PRIVATE "-Wl,--exclude-libs,libwebp.a:libwebpmux.a:libsharpyuv.a")
 find_package(react-native-worklets-core REQUIRED CONFIG)
 message("RN Filament: react-native-worklets core found! Enabling Worklets support...")
 message("RN Filament: react-native-worklets-core found in ${react-native-worklets-core_DIR}")

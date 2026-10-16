@@ -21,6 +21,8 @@ export interface Engine extends PointerHolder {
   createSwapChainForSurface(surface: SurfaceProvider, enableTransparentRendering: boolean): SwapChain
   // TODO: Document
   createSwapChainForRecorder(recorder: TFilamentRecorder): SwapChain
+  /** Creates a transparent readable offscreen surface for diagnostic export. */
+  createWebPExportSwapChain(width: number, height: number): SwapChain
   setSwapChain(swapChain: SwapChain): void
 
   /**

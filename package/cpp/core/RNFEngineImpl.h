@@ -51,6 +51,7 @@ public:
   // First a surface provider must be set, then once we have a surface a swapchain can be created and finally the swapchain can be set
   void setSurfaceProvider(std::shared_ptr<SurfaceProvider> surfaceProvider);
   std::shared_ptr<SwapChain> createSwapChain(void* nativeWindow, u_int64_t flags);
+  std::shared_ptr<SwapChain> createWebPExportSwapChain(int width, int height);
   void setSwapChain(std::shared_ptr<SwapChain> swapChain);
   void surfaceSizeChanged(int width, int height);
 

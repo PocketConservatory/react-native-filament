@@ -49,6 +49,7 @@ class FilamentProxy {
     private final Dispatcher uiThreadDispatcher;
     private final Dispatcher backgroundThreadDispatcher;
     private final Dispatcher renderThreadDispatcher;
+    private Dispatcher exportThreadDispatcher;
     private static final String NAME = "FilamentProxy";
     private static final OkHttpClient client = new OkHttpClient();
 
@@ -192,6 +193,15 @@ class FilamentProxy {
     /**
      * @noinspection unused
      */
+    @DoNotStrip
+    @Keep
+    synchronized Dispatcher getExportThreadDispatcher() {
+        if (exportThreadDispatcher == null) {
+            exportThreadDispatcher = new Dispatcher(new LooperExecutor("FilamentExporter"));
+        }
+        return exportThreadDispatcher;
+    }
+
     @DoNotStrip
     @Keep
     Dispatcher getRenderThreadDispatcher() {

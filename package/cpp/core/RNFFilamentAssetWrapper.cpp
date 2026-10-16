@@ -31,14 +31,15 @@ void FilamentAssetWrapper::loadHybridMethods() {
 }
 
 void FilamentAssetWrapper::setMaterialForPrimitive(std::shared_ptr<EntityWrapper> entityWrapper, int primitiveIndex,
-                                                 std::shared_ptr<MaterialWrapper> materialWrapper) {
+                                                   std::shared_ptr<MaterialWrapper> materialWrapper) {
   std::unique_lock lock(_mutex);
   auto asset = pointee();
   auto material = materialWrapper->getMaterialImpl();
   auto entity = entityWrapper->getEntity();
   auto begin = asset->getRenderableEntities();
   auto end = begin + asset->getRenderableEntityCount();
-  if (std::find(begin, end, entity) == end) throw std::runtime_error("Material target does not belong to this asset");
+  if (std::find(begin, end, entity) == end)
+    throw std::runtime_error("Material target does not belong to this asset");
   auto& manager = _engine->getRenderableManager();
   auto instance = manager.getInstance(entity);
   if (primitiveIndex < 0 || static_cast<size_t>(primitiveIndex) >= manager.getPrimitiveCount(instance))

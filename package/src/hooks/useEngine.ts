@@ -15,14 +15,18 @@ export interface EngineProps {
    */
   config?: EngineConfig
 
+  /** Creates an offscreen engine on the dedicated export context. */
+  exportMode?: boolean
   context: IWorkletContext
 }
 
-export function useEngine({ backend, config, context }: EngineProps): Engine | undefined {
+export function useEngine({ backend, config, context, exportMode }: EngineProps): Engine | undefined {
   // Important: create the engine on the worklet thread, so its owned by the worklet thread
   const createEngine = useWorklet(context, () => {
     'worklet'
-    return FilamentProxy.createEngine(backend ?? undefined, config ?? undefined)
+    return exportMode
+      ? FilamentProxy.createExportEngine(backend ?? undefined, config ?? undefined)
+      : FilamentProxy.createEngine(backend ?? undefined, config ?? undefined)
   })
 
   const engine = useDisposableResource(createEngine)

@@ -161,6 +161,23 @@ std::shared_ptr<SwapChain> EngineImpl::createSwapChain(void* nativeWindow, u_int
                                                });
 }
 
+std::shared_ptr<SwapChain> EngineImpl::createWebPExportSwapChain(int width, int height) {
+  if (width < 1 || height < 1 || width > 1024 || height > 1024)
+    throw std::invalid_argument("WebP dimensions must be 1..1024");
+  auto dispatcher = _rendererDispatcher;
+  if (_view)
+    _view->setBlendMode(View::BlendMode::TRANSLUCENT);
+  return References<SwapChain>::adoptEngineRef(_engine,
+                                               _engine->createSwapChain(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                                                                        SwapChain::CONFIG_TRANSPARENT | SwapChain::CONFIG_READABLE),
+                                               [dispatcher](std::shared_ptr<Engine> engine, SwapChain* swapChain) {
+                                                 dispatcher->runAsync([engine, swapChain]() {
+                                                   engine->destroy(swapChain);
+                                                   engine->flushAndWait();
+                                                 });
+                                               });
+}
+
 void EngineImpl::setSwapChain(std::shared_ptr<SwapChain> swapChain) {
   std::unique_lock lock(_mutex);
   Logger::log(TAG, "Setting swapchain...");
@@ -255,8 +272,8 @@ std::shared_ptr<FilamentAssetWrapper> EngineImpl::makeAssetWrapper(FilamentAsset
   auto scene = _scene;
   auto materials = std::make_shared<std::vector<std::shared_ptr<MaterialImpl>>>();
   std::shared_ptr<EngineImpl> sharedThis = shared_from_this();
-  auto asset =
-      References<gltfio::FilamentAsset>::adoptRef(assetPtr, [dispatcher, assetLoader, scene, sharedThis, materials](gltfio::FilamentAsset* asset) {
+  auto asset = References<gltfio::FilamentAsset>::adoptRef(
+      assetPtr, [dispatcher, assetLoader, scene, sharedThis, materials](gltfio::FilamentAsset* asset) {
         dispatcher->runAsync([assetLoader, asset, scene, sharedThis, materials]() {
           {
             std::unique_lock lock(sharedThis->_mutex); // Locking here, so we don't call render while destroying the asset
