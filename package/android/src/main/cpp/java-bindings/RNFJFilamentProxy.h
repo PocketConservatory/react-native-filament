@@ -31,6 +31,7 @@ public:
   std::shared_ptr<Choreographer> createChoreographer();
   std::shared_ptr<FilamentRecorder> createRecorder(int width, int height, int fps, double bitRate);
   std::shared_ptr<Dispatcher> getRenderThreadDispatcher();
+  std::shared_ptr<Dispatcher> getExportThreadDispatcher();
   std::shared_ptr<Dispatcher> getUIDispatcher();
   std::shared_ptr<Dispatcher> getBackgroundDispatcher();
   float getDisplayRefreshRate();
@@ -45,6 +46,7 @@ private:
   jsi::Runtime* _runtime;
   std::shared_ptr<facebook::react::CallInvoker> _callInvoker;
   std::shared_ptr<Dispatcher> _renderThreadDispatcher;
+  std::shared_ptr<Dispatcher> _exportThreadDispatcher;
   std::shared_ptr<Dispatcher> _uiDispatcher;
   std::shared_ptr<Dispatcher> _backgroundDispatcher;
 

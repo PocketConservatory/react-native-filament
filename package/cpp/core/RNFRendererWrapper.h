@@ -6,6 +6,7 @@
 
 #include "RNFSwapChainWrapper.h"
 #include "RNFViewWrapper.h"
+#include "RNFWebPExport.h"
 #include "jsi/RNFPointerHolder.h"
 #include <filament/Renderer.h>
 
@@ -20,6 +21,16 @@ public:
   void loadHybridMethods() override;
 
 private: // Exposed JS API
+  std::shared_ptr<WebPExport> _webpExport;
+  int getWebPExportMaxPendingFrames();
+  int getWebPExportPeakEncodingConcurrency();
+  void beginParallelWebPExport(std::string path, int width, int height, int maxFrames);
+  void beginResizedParallelWebPExport(std::string path, int captureWidth, int captureHeight, int outputWidth, int outputHeight,
+                                      int maxFrames);
+  void beginWebPExport(std::string path, int width, int height, int maxFrames);
+  std::future<void> captureWebPFrame(int timestampMs);
+  std::future<std::string> finishWebPExport(int timestampMs);
+  void cancelWebPExport();
   void setFrameRateOptions(std::unordered_map<std::string, double> options);
   void setPresentationTime(double timestamp);
 

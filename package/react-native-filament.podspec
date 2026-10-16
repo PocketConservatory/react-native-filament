@@ -195,6 +195,7 @@ Pod::Spec.new do |s|
   ]
 
   s.dependency "react-native-worklets-core"
+  s.dependency "libwebp", "1.6.0"
   
   s.ios.frameworks = 'AVFoundation', 'CoreMedia'
 

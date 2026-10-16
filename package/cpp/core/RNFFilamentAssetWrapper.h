@@ -18,9 +18,8 @@ using namespace filament;
 
 class FilamentAssetWrapper : public PointerHolder<gltfio::FilamentAsset> {
 public:
-  explicit FilamentAssetWrapper(std::shared_ptr<gltfio::FilamentAsset> asset,
-                               Engine* engine,
-                               std::shared_ptr<std::vector<std::shared_ptr<MaterialImpl>>> materials)
+  explicit FilamentAssetWrapper(std::shared_ptr<gltfio::FilamentAsset> asset, Engine* engine,
+                                std::shared_ptr<std::vector<std::shared_ptr<MaterialImpl>>> materials)
       : PointerHolder("FilamentAssetWrapper", asset), _engine(engine), _materials(materials) {}
 
   void loadHybridMethods() override;
