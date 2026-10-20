@@ -16,7 +16,7 @@ The builder downloads the official `react-native-filament@1.11.0` npm tarball, v
 
 The tarball contains `TONIC-PROVENANCE.json` recording the upstream archive and fork commit. The builder rejects a dirty checkout by default. Use `--allow-dirty` only for pre-commit review and rebuild after committing; release only a build with `dirty: false`. No timestamp is written into provenance. The builder also verifies that every bundled native library/header remains byte-identical to the published upstream package.
 
-Create tag `v1.11.0-tonic.2` at the packaged commit and upload `react-native-filament-1.11.0-tonic.2.tgz` and its `.sha256` file as GitHub release assets. Point the app dependency at that exact release asset URL and commit its Yarn lockfile checksum. Never replace an existing release asset: increment the Tonic version and publish a new release for every change.
+Create tag `v1.11.0-tonic.3` at the packaged commit and upload `react-native-filament-1.11.0-tonic.3.tgz` and its `.sha256` file as GitHub release assets. Point the app dependency at that exact release asset URL and commit its Yarn lockfile checksum. Never replace an existing release asset: increment the Tonic version and publish a new release for every change.
 
 Do not use a direct Git dependency: upstream tracks neither native static libraries nor generated JavaScript. Its prepare hook requires the larger Bun/submodule development workspace. The release tarball contains everything the app needs and requires no install-time native build scripts.
 
