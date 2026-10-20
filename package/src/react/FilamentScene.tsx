@@ -1,5 +1,5 @@
 import { PropsWithChildren, useMemo } from 'react'
-import { FilamentProxy, FilamentWorkletContext } from '../native/FilamentProxy'
+import { FilamentProxy, FilamentWorkletContext, getFilamentExportWorkletContext } from '../native/FilamentProxy'
 import { EngineProps, useEngine } from '../hooks/useEngine'
 import { useDisposableResource } from '../hooks/useDisposableResource'
 import { useWorklet } from 'react-native-worklets-core'
@@ -45,9 +45,18 @@ export type FilamentProviderProps = PropsWithChildren<
  * }
  * ```
  */
-export function FilamentScene({ children, fallback, config, backend, frameRateOptions, ...viewProps }: FilamentProviderProps) {
+export function FilamentScene({
+  children,
+  fallback,
+  config,
+  backend,
+  frameRateOptions,
+  exportMode = false,
+  ...viewProps
+}: FilamentProviderProps) {
   // First create the engine, which we need to create (almost) all other filament APIs
-  const engine = useEngine({ config, backend, context: FilamentWorkletContext })
+  const workletContext = exportMode ? getFilamentExportWorkletContext() : FilamentWorkletContext
+  const engine = useEngine({ config, backend, context: workletContext, exportMode })
 
   // Create all Filament APIs using the engine
   const transformManager = useDisposableResource(() => Promise.resolve(engine?.createTransformManager()), [engine])
@@ -61,7 +70,7 @@ export function FilamentScene({ children, fallback, config, backend, frameRateOp
 
   // Create a choreographer for this context tree
   const choreographer = useDisposableResource(
-    useWorklet(FilamentWorkletContext, () => {
+    useWorklet(workletContext, () => {
       'worklet'
       return FilamentProxy.createChoreographer()
     })
@@ -94,10 +103,22 @@ export function FilamentScene({ children, fallback, config, backend, frameRateOp
       camera,
       renderer,
       nameComponentManager,
-      workletContext: FilamentWorkletContext,
+      workletContext,
       choreographer: choreographer,
     }
-  }, [engine, transformManager, renderableManager, scene, lightManager, view, camera, renderer, nameComponentManager, choreographer])
+  }, [
+    engine,
+    transformManager,
+    renderableManager,
+    scene,
+    lightManager,
+    view,
+    camera,
+    renderer,
+    nameComponentManager,
+    choreographer,
+    workletContext,
+  ])
 
   const rendererProps = useMemo(() => ({ frameRateOptions }), [frameRateOptions])
 

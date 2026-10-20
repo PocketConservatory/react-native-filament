@@ -3,6 +3,7 @@
 //
 
 #include "RNFFilamentProxy.h"
+#include <filament/MaterialEnums.h>
 #include <jsi/jsi.h>
 
 #include "RNFReferences.h"
@@ -22,9 +23,11 @@ using namespace facebook;
 
 void FilamentProxy::loadHybridMethods() {
   registerHybridMethod("loadAsset", &FilamentProxy::loadAssetAsync, this);
+  registerHybridMethod("getFilamentMaterialVersion", &FilamentProxy::getFilamentMaterialVersion, this);
   registerHybridMethod("findFilamentView", &FilamentProxy::findFilamentViewAsync, this);
   registerHybridMethod("createTestObject", &FilamentProxy::createTestObject, this);
   registerHybridMethod("createEngine", &FilamentProxy::createEngine, this);
+  registerHybridMethod("createExportEngine", &FilamentProxy::createExportEngine, this);
   registerHybridMethod("createBullet", &FilamentProxy::createBullet, this);
   registerHybridMethod("createChoreographer", &FilamentProxy::createChoreographerWrapper, this);
   registerHybridMethod("createRecorder", &FilamentProxy::createRecorder, this);
@@ -32,7 +35,12 @@ void FilamentProxy::loadHybridMethods() {
   registerHybridGetter("hasWorklets", &FilamentProxy::getHasWorklets, this);
 #if HAS_WORKLETS
   registerHybridMethod("createWorkletContext", &FilamentProxy::createWorkletContext, this);
+  registerHybridMethod("createExportWorkletContext", &FilamentProxy::createExportWorkletContext, this);
 #endif
+}
+
+double FilamentProxy::getFilamentMaterialVersion() {
+  return static_cast<double>(filament::MATERIAL_VERSION);
 }
 
 bool FilamentProxy::getHasWorklets() {
@@ -45,13 +53,21 @@ bool FilamentProxy::getHasWorklets() {
 
 #if HAS_WORKLETS
 std::shared_ptr<RNWorklet::JsiWorkletContext> FilamentProxy::createWorkletContext() {
+  return createContextOnDispatcher(getRenderThreadDispatcher(), "FilamentRenderer");
+}
+
+std::shared_ptr<RNWorklet::JsiWorkletContext> FilamentProxy::createExportWorkletContext() {
+  return createContextOnDispatcher(getExportThreadDispatcher(), "FilamentExporter");
+}
+
+std::shared_ptr<RNWorklet::JsiWorkletContext> FilamentProxy::createContextOnDispatcher(std::shared_ptr<Dispatcher> renderThreadDispatcher,
+                                                                                       const char* name) {
   Logger::log(TAG, "Creating Worklet Context...");
   auto jsDispatcher = getJSDispatcher();
   auto runOnJS = [=](std::function<void()>&& function) { jsDispatcher->runAsync(std::move(function)); };
-  auto renderThreadDispatcher = getRenderThreadDispatcher();
   auto runOnWorklet = [=](std::function<void()>&& function) { renderThreadDispatcher->runAsync(std::move(function)); };
   auto& runtime = getMainJSRuntime();
-  auto workletContext = std::make_shared<RNWorklet::JsiWorkletContext>("FilamentRenderer", &runtime, runOnJS, runOnWorklet);
+  auto workletContext = std::make_shared<RNWorklet::JsiWorkletContext>(name, &runtime, runOnJS, runOnWorklet);
   Logger::log(TAG, "Successfully created WorkletContext! Installing global Dispatcher...");
 
   workletContext->invokeOnWorkletThread([=](RNWorklet::JsiWorkletContext*, jsi::Runtime& runtime) {
@@ -102,9 +118,18 @@ std::shared_ptr<TestHybridObject> FilamentProxy::createTestObject() {
 
 std::shared_ptr<EngineWrapper> FilamentProxy::createEngine(std::optional<std::string> backend,
                                                            std::optional<std::unordered_map<std::string, int>> arguments) {
-  Logger::log(TAG, "Creating Engine...");
+  return createEngineOnDispatcher(getRenderThreadDispatcher(), backend, arguments);
+}
 
-  std::shared_ptr<Dispatcher> renderThread = getRenderThreadDispatcher();
+std::shared_ptr<EngineWrapper> FilamentProxy::createExportEngine(std::optional<std::string> backend,
+                                                                 std::optional<std::unordered_map<std::string, int>> arguments) {
+  return createEngineOnDispatcher(getExportThreadDispatcher(), backend, arguments);
+}
+
+std::shared_ptr<EngineWrapper> FilamentProxy::createEngineOnDispatcher(std::shared_ptr<Dispatcher> renderThread,
+                                                                       std::optional<std::string> backend,
+                                                                       std::optional<std::unordered_map<std::string, int>> arguments) {
+  Logger::log(TAG, "Creating Engine...");
 
   Engine::Config config = EngineConfigHelper::makeConfigFromUserParams(arguments);
   Engine::Backend backendEnum = Engine::Backend::DEFAULT;

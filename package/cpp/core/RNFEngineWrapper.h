@@ -64,6 +64,7 @@ private: // Exposed public JS API
   std::shared_ptr<SwapChainWrapper> createSwapChainForSurface(std::shared_ptr<SurfaceProvider> surfaceProvider,
                                                               bool enableTransparentRendering);
   std::shared_ptr<SwapChainWrapper> createSwapChainForRecorder(std::shared_ptr<FilamentRecorder> recorder);
+  std::shared_ptr<SwapChainWrapper> createWebPExportSwapChain(int width, int height);
   void setSwapChain(std::shared_ptr<SwapChainWrapper> swapChainWrapper);
   void setIndirectLight(std::shared_ptr<FilamentBuffer> modelBuffer, std::optional<double> intensity, std::optional<int> irradianceBands);
   std::shared_ptr<FilamentAssetWrapper> loadAsset(std::shared_ptr<FilamentBuffer> modelBuffer);

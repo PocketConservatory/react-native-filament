@@ -1,6 +1,6 @@
 {
   "name": "react-native-filament",
-  "version": "1.11.0",
+  "version": "1.11.0-tonic.3",
   "description": "A real-time physically based 3D rendering engine for React Native",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -15,6 +15,7 @@
     "ios",
     "cpp",
     "assets",
+    "TONIC-PROVENANCE.json",
     "*.podspec",
     "!ios/build",
     "!android/build",
@@ -64,7 +65,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/margelo/react-native-filament.git"
+    "url": "git+https://github.com/PocketConservatory/react-native-filament.git"
   },
   "author": "Marc Rousavy <me@mrousavy.com> (https://github.com/mrousavy)",
   "contributors": [

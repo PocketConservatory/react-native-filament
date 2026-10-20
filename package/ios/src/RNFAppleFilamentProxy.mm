@@ -102,6 +102,13 @@ std::shared_ptr<Dispatcher> AppleFilamentProxy::getRenderThreadDispatcher() {
   return _renderThreadDispatcher;
 }
 
+std::shared_ptr<Dispatcher> AppleFilamentProxy::getExportThreadDispatcher() {
+  if (_exportThreadDispatcher == nullptr) {
+    _exportThreadDispatcher = std::make_shared<NSThreadDispatcher>("filament.export.queue");
+  }
+  return _exportThreadDispatcher;
+}
+
 std::shared_ptr<Dispatcher> AppleFilamentProxy::getUIDispatcher() {
   if (_uiDispatcher == nullptr) {
     _uiDispatcher = std::make_shared<AppleDispatcher>(dispatch_get_main_queue());

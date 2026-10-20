@@ -57,6 +57,7 @@ private:
    * This is guaranteed to only use a single Thread, as opposed to a Thread-pool.
    */
   virtual std::shared_ptr<Dispatcher> getRenderThreadDispatcher() = 0;
+  virtual std::shared_ptr<Dispatcher> getExportThreadDispatcher() = 0;
   /**
    * Get the Dispatcher for the platform-default UI Thread.
    * This is guaranteed to only use a single Thread, as opposed to a Thread-pool.
@@ -87,8 +88,14 @@ private:
   std::future<std::shared_ptr<FilamentView>> findFilamentViewAsync(int id);
   std::shared_ptr<EngineWrapper> createEngine(std::optional<std::string> backend = std::nullopt,
                                               std::optional<std::unordered_map<std::string, int>> arguments = std::nullopt);
+  std::shared_ptr<EngineWrapper> createExportEngine(std::optional<std::string> backend,
+                                                    std::optional<std::unordered_map<std::string, int>> arguments);
+  std::shared_ptr<EngineWrapper> createEngineOnDispatcher(std::shared_ptr<Dispatcher> renderThread, std::optional<std::string> backend,
+                                                          std::optional<std::unordered_map<std::string, int>> arguments);
   std::shared_ptr<BulletWrapper> createBullet();
   bool getHasWorklets();
+  /** Returns the material ABI compiled into this native binding. */
+  double getFilamentMaterialVersion();
   jsi::Value createChoreographerWrapper(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* args, size_t count);
 
 #if HAS_WORKLETS
@@ -101,6 +108,8 @@ private:
    * The caller (JS) is responsible for keeping the returned reference strong.
    */
   std::shared_ptr<RNWorklet::JsiWorkletContext> createWorkletContext();
+  std::shared_ptr<RNWorklet::JsiWorkletContext> createExportWorkletContext();
+  std::shared_ptr<RNWorklet::JsiWorkletContext> createContextOnDispatcher(std::shared_ptr<Dispatcher> dispatcher, const char* name);
 #endif
 
 public:

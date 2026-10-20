@@ -1,4 +1,29 @@
 require "json"
+require "fileutils"
+
+
+filament_path = "ios/libs/filament"
+if ENV["TONIC_FILAMENT_IOS_DIR"] && !ENV["TONIC_FILAMENT_IOS_DIR"].empty?
+  source = File.realpath(ENV["TONIC_FILAMENT_IOS_DIR"])
+  expected_stamp = "filament=1.77.3\narchive-sha256=40bc8e5a51040cc4b0bf8aaff7bf339ce16e13485644f60dbe1cb023b284fde7\nmaterial-abi=77\n"
+  stamp_path = File.join(source, "tonic-ios-release.txt")
+  unless File.file?(stamp_path) && File.read(stamp_path) == expected_stamp
+    raise "Prepare the official Filament 1.77.3 iOS archive with scripts/native-avatar/prepare-filament-ios.py first"
+  end
+  header = File.join(source, "include/filament/MaterialEnums.h")
+  unless File.read(header).match?(/MATERIAL_VERSION = 77;/)
+    raise "Custom Filament iOS headers must use material ABI 77"
+  end
+  filament_path = "ios/libs/filament-custom"
+  destination = File.join(__dir__, filament_path)
+  marker = File.join(destination, "tonic-copy-source.txt")
+  copy_identity = source + "\n" + expected_stamp
+  unless File.file?(marker) && File.read(marker) == copy_identity
+    FileUtils.rm_rf(destination)
+    FileUtils.cp_r(source, destination)
+    File.write(marker, copy_identity)
+  end
+end
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
 
@@ -23,101 +48,109 @@ Pod::Spec.new do |s|
   s.authors      = package["author"]
 
   s.platforms    = { :ios => min_ios_version_supported }
-  s.source       = { :git => "https://github.com/margelo/react-native-filament.git", :tag => "#{s.version}" }
+  s.source       = { :http => "https://github.com/PocketConservatory/react-native-filament/releases/download/v#{s.version}/react-native-filament-#{s.version}.tgz" }
 
   s.pod_target_xcconfig = {
     "GCC_PREPROCESSOR_DEFINITIONS" => "FILAMENT_APP_USE_METAL=1 HAS_WORKLETS=#{hasWorklets} RNF_ENABLE_LOGS=#{enableLogs} $(inherited)",
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++17",
-    "HEADER_SEARCH_PATHS" => "\"$(PODS_TARGET_SRCROOT)/cpp/**\" \"$(PODS_TARGET_SRCROOT)/ios/libs/bullet3/**\" \"$(PODS_TARGET_SRCROOT)/ios/libs/filament/include/**\""
+    "HEADER_SEARCH_PATHS" => "\"$(PODS_TARGET_SRCROOT)/cpp/**\" \"$(PODS_TARGET_SRCROOT)/ios/libs/bullet3/**\" \"$(PODS_TARGET_SRCROOT)/#{filament_path}/include/**\""
   }
 
   # Configure sub podspecs for filament
   s.subspec "filament" do |ss|
     ss.source_files =
-        "ios/libs/filament/include/filament/*.h",
-        "ios/libs/filament/include/backend/*.h",
-        "ios/libs/filament/include/filament/MaterialChunkType.h",
-        "ios/libs/filament/include/filament/MaterialEnums.h",
-        "ios/libs/filament/include/ibl/*.h",
-        "ios/libs/filament/include/geometry/*.h"
-    ss.header_mappings_dir = "ios/libs/filament/include"
-    ss.vendored_frameworks =
-        "ios/libs/filament/lib/libfilament.xcframework",
-        "ios/libs/filament/lib/libbackend.xcframework",
-        "ios/libs/filament/lib/libfilabridge.xcframework",
-        "ios/libs/filament/lib/libfilaflat.xcframework",
-        "ios/libs/filament/lib/libibl.xcframework",
-        "ios/libs/filament/lib/libgeometry.xcframework"
+        "#{filament_path}/include/filament/*.h",
+        "#{filament_path}/include/backend/*.h",
+        "#{filament_path}/include/filament/MaterialChunkType.h",
+        "#{filament_path}/include/filament/MaterialEnums.h",
+        "#{filament_path}/include/ibl/*.h",
+        "#{filament_path}/include/geometry/*.h"
+    ss.header_mappings_dir = "#{filament_path}/include"
+    engine_frameworks = [
+        "#{filament_path}/lib/libfilament.xcframework",
+        "#{filament_path}/lib/libbackend.xcframework",
+        "#{filament_path}/lib/libfilabridge.xcframework",
+        "#{filament_path}/lib/libfilaflat.xcframework",
+        "#{filament_path}/lib/libibl.xcframework",
+        "#{filament_path}/lib/libgeometry.xcframework"
+    ]
+    if filament_path != "ios/libs/filament"
+      engine_frameworks += [
+        "#{filament_path}/lib/libmeshoptimizer.xcframework",
+        "#{filament_path}/lib/libmikktspace.xcframework"
+      ]
+    end
+    ss.vendored_frameworks = engine_frameworks
     ss.dependency "react-native-filament/utils"
     ss.dependency "react-native-filament/math"
   end
 
   s.subspec "camutils" do |ss|
-    ss.source_files = "ios/libs/filament/include/camutils/*.h"
-    ss.vendored_frameworks = "ios/libs/filament/lib/libcamutils.xcframework"
+    ss.source_files = "#{filament_path}/include/camutils/*.h"
+    ss.vendored_frameworks = "#{filament_path}/lib/libcamutils.xcframework"
     ss.header_dir = "camutils"
-    ss.header_mappings_dir = "ios/libs/filament/include"
+    ss.header_mappings_dir = "#{filament_path}/include"
     ss.dependency "react-native-filament/math"
   end
 
   s.subspec "utils" do |ss|
-    ss.source_files = "ios/libs/filament/include/utils/**/*.h"
-    ss.header_mappings_dir = "ios/libs/filament/include"
+    ss.source_files = "#{filament_path}/include/utils/**/*.h"
+    ss.header_mappings_dir = "#{filament_path}/include"
     ss.header_dir = "utils"
-    ss.header_mappings_dir = "ios/libs/filament/include"
-    ss.vendored_frameworks = "ios/libs/filament/lib/libutils.xcframework"
+    ss.header_mappings_dir = "#{filament_path}/include"
+    ss.vendored_frameworks = "#{filament_path}/lib/libutils.xcframework"
     ss.dependency "react-native-filament/tsl"
   end
 
   s.subspec "tsl" do |ss|
-    ss.source_files = "ios/libs/filament/include/tsl/*.h"
+    ss.source_files = "#{filament_path}/include/tsl/*.h"
     ss.header_dir = "tsl"
   end
 
   s.subspec "math" do |ss|
-    ss.source_files = "ios/libs/filament/include/math/*.h"
+    ss.source_files = "#{filament_path}/include/math/*.h"
     ss.header_dir = "math"
-    ss.header_mappings_dir = "ios/libs/filament/include"
+    ss.header_mappings_dir = "#{filament_path}/include"
   end
 
   s.subspec "filamat" do |ss|
     ss.source_files =
-        "ios/libs/filament/include/filamat/*.h",
-        "ios/libs/filament/include/filament/MaterialChunkType.h",
-        "ios/libs/filament/include/filament/MaterialEnums.h"
-    ss.header_mappings_dir = "ios/libs/filament/include"
+        "#{filament_path}/include/filamat/*.h",
+        "#{filament_path}/include/filament/MaterialChunkType.h",
+        "#{filament_path}/include/filament/MaterialEnums.h"
+    ss.header_mappings_dir = "#{filament_path}/include"
     ss.vendored_frameworks =
-      "ios/libs/filament/lib/libfilamat.xcframework",
-      "ios/libs/filament/lib/libshaders.xcframework",
-      "ios/libs/filament/lib/libsmol-v.xcframework",
-      "ios/libs/filament/lib/libfilabridge.xcframework"
+      "#{filament_path}/lib/libfilamat.xcframework",
+      "#{filament_path}/lib/libshaders.xcframework",
+      "#{filament_path}/lib/libsmol-v.xcframework",
+      "#{filament_path}/lib/libfilabridge.xcframework"
     ss.dependency "react-native-filament/utils"
     ss.dependency "react-native-filament/math"
   end
 
   s.subspec "image" do |ss|
-    ss.source_files = "ios/libs/filament/include/image/*.h"
-    ss.vendored_frameworks = "ios/libs/filament/lib/libimage.xcframework"
+    ss.source_files = "#{filament_path}/include/image/*.h"
+    ss.vendored_frameworks = "#{filament_path}/lib/libimage.xcframework"
     ss.header_dir = "image"
     ss.dependency "react-native-filament/filament"
   end
 
   s.subspec "ktxreader" do |ss|
-    ss.source_files = "ios/libs/filament/include/ktxreader/*.h"
-    ss.header_mappings_dir = "ios/libs/filament/include"
+    ss.source_files = "#{filament_path}/include/ktxreader/*.h"
+    ss.header_mappings_dir = "#{filament_path}/include"
     ss.vendored_frameworks =
-        "ios/libs/filament/lib/libktxreader.xcframework",
-        "ios/libs/filament/lib/libbasis_transcoder.xcframework"
+        "#{filament_path}/lib/libktxreader.xcframework",
+        "#{filament_path}/lib/libbasis_transcoder.xcframework"
     ss.dependency "react-native-filament/image"
     ss.dependency "react-native-filament/filament"
   end
 
   s.subspec "uberz" do |ss|
-    ss.source_files = "ios/libs/filament/include/uberz/*.h"
-    ss.header_mappings_dir = "ios/libs/filament/include"
+    ss.source_files = "#{filament_path}/include/uberz/*.h"
+    ss.header_mappings_dir = "#{filament_path}/include"
     ss.vendored_frameworks =
-        "ios/libs/filament/lib/libuberzlib.xcframework",
-        "ios/libs/filament/lib/libzstd.xcframework"
+        "#{filament_path}/lib/libuberzlib.xcframework",
+        "#{filament_path}/lib/libzstd.xcframework"
     ss.header_dir = "uberz"
     ss.dependency "react-native-filament/filamat"
     ss.dependency "react-native-filament/tsl"
@@ -125,13 +158,13 @@ Pod::Spec.new do |s|
   end
 
   s.subspec "gltfio_core" do |ss|
-    ss.source_files = "ios/libs/filament/include/gltfio/**/*.h"
-    ss.header_mappings_dir = "ios/libs/filament/include"
+    ss.source_files = "#{filament_path}/include/gltfio/**/*.h"
+    ss.header_mappings_dir = "#{filament_path}/include"
     ss.vendored_frameworks =
-      "ios/libs/filament/lib/libgltfio_core.xcframework",
-      "ios/libs/filament/lib/libdracodec.xcframework",
-      "ios/libs/filament/lib/libuberarchive.xcframework",
-      "ios/libs/filament/lib/libstb.xcframework"
+      "#{filament_path}/lib/libgltfio_core.xcframework",
+      "#{filament_path}/lib/libdracodec.xcframework",
+      "#{filament_path}/lib/libuberarchive.xcframework",
+      "#{filament_path}/lib/libstb.xcframework"
     ss.dependency "react-native-filament/filament"
     ss.dependency "react-native-filament/ktxreader"
     ss.dependency "react-native-filament/uberz"
@@ -162,6 +195,7 @@ Pod::Spec.new do |s|
   ]
 
   s.dependency "react-native-worklets-core"
+  s.dependency "libwebp", "1.6.0"
   
   s.ios.frameworks = 'AVFoundation', 'CoreMedia'
 

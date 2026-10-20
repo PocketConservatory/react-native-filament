@@ -2,8 +2,11 @@ import { Entity } from './Entity'
 import { FilamentInstance } from './FilamentInstance'
 import { FilamentInstanceBase } from './FilamentInstanceBase'
 import { PointerHolder } from './PointerHolder'
+import { Material } from './Material'
 
 export interface FilamentAsset extends PointerHolder, FilamentInstanceBase {
+  /** Assigns a default material instance and retains it until this native asset is destroyed. */
+  setMaterialForPrimitive?(entity: Entity, primitiveIndex: number, material: Material): void
   /**
    * Gets the list of entities in the asset that have renderable components.
    */

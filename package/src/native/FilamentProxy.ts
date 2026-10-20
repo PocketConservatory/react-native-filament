@@ -25,6 +25,8 @@ interface TestHybridObject {
 }
 
 export interface TFilamentProxy {
+  /** Material ABI of the installed native binding; absent in older binaries. */
+  getFilamentMaterialVersion?(): number
   /**
    * Asynchronously loads the the given asset into a ByteBuffer.
    * @param path A web URL (http:// or https://), local file (file://) or resource ID. (Only resource ID supported for now)
@@ -91,6 +93,10 @@ export interface TFilamentProxy {
    * })
    * ```
    */
+  /** Creates a context on the dedicated offscreen export thread; retain it for the JS runtime lifetime. */
+  createExportWorkletContext: () => IWorkletContext
+  /** Creates an engine owned by the export thread; call only from the export context. */
+  createExportEngine(backend?: EngineBackend, config?: EngineConfig): Engine
   createWorkletContext: () => IWorkletContext
 
   createChoreographer(): Choreographer
@@ -126,3 +132,12 @@ Worklets.defaultContext
 
 // Create our custom RNF worklet context:
 export const FilamentWorkletContext = proxy.createWorkletContext()
+
+let exportWorkletContext: IWorkletContext | undefined
+/** Returns the retained context for offscreen exports, separate from live rendering. */
+export function getFilamentExportWorkletContext(): IWorkletContext {
+  if (typeof proxy.createExportWorkletContext !== 'function' || typeof proxy.createExportEngine !== 'function') {
+    throw new Error('Rebuild required: this app binary does not support isolated Filament export')
+  }
+  return (exportWorkletContext ??= proxy.createExportWorkletContext())
+}

@@ -104,6 +104,7 @@ android {
       cmake {
         cppFlags "-O2 -frtti -fexceptions -Wall -Wno-unused-variable -fstack-protector-all"
         arguments "-DANDROID_STL=c++_shared",
+                "-DTONIC_FILAMENT_ANDROID_DIR=${System.getenv('TONIC_FILAMENT_ANDROID_DIR') ?: ''}",
                 "-DRNF_ENABLE_LOGS=${enableLogs ? "ON" : "OFF"}",
                 "-DNODE_MODULES_DIR=${nodeModules}",
                 "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"

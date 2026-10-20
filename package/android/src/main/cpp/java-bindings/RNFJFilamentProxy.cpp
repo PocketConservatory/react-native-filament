@@ -64,6 +64,16 @@ std::shared_ptr<Dispatcher> JFilamentProxy::getRenderThreadDispatcher() {
   return _renderThreadDispatcher;
 }
 
+std::shared_ptr<Dispatcher> JFilamentProxy::getExportThreadDispatcher() {
+  if (_exportThreadDispatcher == nullptr) {
+    static const auto method = javaClassLocal()->getMethod<jni::alias_ref<JDispatcher::javaobject>()>("getExportThreadDispatcher");
+    jni::local_ref<JDispatcher::javaobject> dispatcher = method(_javaPart);
+    jni::global_ref<JDispatcher::javaobject> globalRef = jni::make_global(dispatcher);
+    _exportThreadDispatcher = JNISharedPtr::make_shared_from_jni<JDispatcher>(globalRef);
+  }
+  return _exportThreadDispatcher;
+}
+
 std::shared_ptr<Dispatcher> JFilamentProxy::getUIDispatcher() {
   if (_uiDispatcher == nullptr) {
     static const auto method = javaClassLocal()->getMethod<jni::alias_ref<JDispatcher::javaobject>()>("getUIDispatcher");

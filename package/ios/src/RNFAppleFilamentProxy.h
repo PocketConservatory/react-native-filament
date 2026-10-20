@@ -38,6 +38,7 @@ public:
   std::shared_ptr<FilamentRecorder> createRecorder(int width, int height, int fps, double bitRate) override;
   std::shared_ptr<Dispatcher> getJSDispatcher() override;
   std::shared_ptr<Dispatcher> getRenderThreadDispatcher() override;
+  std::shared_ptr<Dispatcher> getExportThreadDispatcher() override;
   std::shared_ptr<Dispatcher> getUIDispatcher() override;
   std::shared_ptr<Dispatcher> getBackgroundDispatcher() override;
   float getDisplayRefreshRate() override;
@@ -50,6 +51,7 @@ private:
   jsi::Runtime* _runtime;
   std::shared_ptr<Dispatcher> _jsDispatcher;
   std::shared_ptr<Dispatcher> _renderThreadDispatcher;
+  std::shared_ptr<Dispatcher> _exportThreadDispatcher;
   std::shared_ptr<Dispatcher> _uiDispatcher;
   std::shared_ptr<Dispatcher> _backgroundDispatcher;
 #ifdef RCT_NEW_ARCH_ENABLED

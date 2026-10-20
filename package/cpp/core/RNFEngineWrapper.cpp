@@ -32,6 +32,7 @@
 namespace margelo {
 
 void EngineWrapper::loadHybridMethods() {
+  registerHybridMethod("createWebPExportSwapChain", &EngineWrapper::createWebPExportSwapChain, this);
   registerHybridMethod("setSurfaceProvider", &EngineWrapper::setSurfaceProvider, this);
   registerHybridMethod("createSwapChainForSurface", &EngineWrapper::createSwapChainForSurface, this);
   registerHybridMethod("createSwapChainForRecorder", &EngineWrapper::createSwapChainForRecorder, this);
@@ -89,6 +90,11 @@ std::shared_ptr<SwapChainWrapper> EngineWrapper::createSwapChainForRecorder(std:
   int height = recorder->getHeight();
   pointee()->surfaceSizeChanged(width, height);
 
+  return std::make_shared<SwapChainWrapper>(swapChain);
+}
+std::shared_ptr<SwapChainWrapper> EngineWrapper::createWebPExportSwapChain(int width, int height) {
+  auto swapChain = pointee()->createWebPExportSwapChain(width, height);
+  pointee()->surfaceSizeChanged(width, height);
   return std::make_shared<SwapChainWrapper>(swapChain);
 }
 void EngineWrapper::setSwapChain(std::shared_ptr<SwapChainWrapper> swapChainWrapper) {

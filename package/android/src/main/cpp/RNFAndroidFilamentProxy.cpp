@@ -43,6 +43,10 @@ std::shared_ptr<Dispatcher> AndroidFilamentProxy::getRenderThreadDispatcher() {
   return _proxy->cthis()->getRenderThreadDispatcher();
 }
 
+std::shared_ptr<Dispatcher> AndroidFilamentProxy::getExportThreadDispatcher() {
+  return _proxy->cthis()->getExportThreadDispatcher();
+}
+
 std::shared_ptr<Dispatcher> AndroidFilamentProxy::getUIDispatcher() {
   return _proxy->cthis()->getUIDispatcher();
 }
