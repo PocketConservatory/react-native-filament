@@ -8,6 +8,7 @@
 #import "RNFAppleFilamentProxy.h"
 #import "RNFAppleChoreographer.h"
 #import "RNFAppleDispatcher.h"
+#import "RNFAppleFileLoader.h"
 #import "RNFAppleFilamentRecorder.h"
 #import "RNFAppleFilamentView.h"
 #import "RNFAppleManagedBuffer.h"
@@ -52,14 +53,7 @@ std::shared_ptr<FilamentBuffer> AppleFilamentProxy::loadAsset(const std::string&
 
   // Check if we want to load from file path:
   if ([filePath hasPrefix:@"file://"]) {
-    filePath = [filePath substringFromIndex:7];
-
-    // Load the data from the file
-    NSError* errorPtr;
-    NSData* bufferData = [NSData dataWithContentsOfFile:filePath options:NSDataReadingMappedIfSafe error:&errorPtr];
-    if (!bufferData || errorPtr != nullptr) {
-      throw std::runtime_error("File not found or could not be read, error: " + std::string(errorPtr.localizedDescription.UTF8String));
-    }
+    NSData* bufferData = loadFileURL(filePath);
     auto managedBuffer = std::make_shared<AppleManagedBuffer>(bufferData);
     return std::make_shared<FilamentBuffer>(managedBuffer);
   }
