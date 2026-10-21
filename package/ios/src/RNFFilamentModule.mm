@@ -48,8 +48,7 @@ RCT_EXPORT_MODULE()
   jsi::Runtime* jsiRuntime = nullptr;
   std::shared_ptr<react::CallInvoker> jsCallInvoker = nullptr;
   if (_isBridgeless) {
-    // If we are in bridgless mode we can cast directly to RCTCxxBridge to get our properties:
-    RCTCxxBridge* cxxBridge = (RCTCxxBridge*)self.bridge;
+    RCTBridge* cxxBridge = self.bridge;
     jsiRuntime = (jsi::Runtime*)cxxBridge.runtime;
     jsCallInvoker = cxxBridge.jsCallInvoker;
   } else {
