@@ -1,29 +1,6 @@
 require "json"
-require "fileutils"
-
 
 filament_path = "ios/libs/filament"
-if ENV["TONIC_FILAMENT_IOS_DIR"] && !ENV["TONIC_FILAMENT_IOS_DIR"].empty?
-  source = File.realpath(ENV["TONIC_FILAMENT_IOS_DIR"])
-  expected_stamp = "filament=1.77.3\narchive-sha256=40bc8e5a51040cc4b0bf8aaff7bf339ce16e13485644f60dbe1cb023b284fde7\nmaterial-abi=77\n"
-  stamp_path = File.join(source, "tonic-ios-release.txt")
-  unless File.file?(stamp_path) && File.read(stamp_path) == expected_stamp
-    raise "Prepare the official Filament 1.77.3 iOS archive with scripts/native-avatar/prepare-filament-ios.py first"
-  end
-  header = File.join(source, "include/filament/MaterialEnums.h")
-  unless File.read(header).match?(/MATERIAL_VERSION = 77;/)
-    raise "Custom Filament iOS headers must use material ABI 77"
-  end
-  filament_path = "ios/libs/filament-custom"
-  destination = File.join(__dir__, filament_path)
-  marker = File.join(destination, "tonic-copy-source.txt")
-  copy_identity = source + "\n" + expected_stamp
-  unless File.file?(marker) && File.read(marker) == copy_identity
-    FileUtils.rm_rf(destination)
-    FileUtils.cp_r(source, destination)
-    File.write(marker, copy_identity)
-  end
-end
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
 
@@ -66,21 +43,15 @@ Pod::Spec.new do |s|
         "#{filament_path}/include/ibl/*.h",
         "#{filament_path}/include/geometry/*.h"
     ss.header_mappings_dir = "#{filament_path}/include"
-    engine_frameworks = [
+    ss.vendored_frameworks =
         "#{filament_path}/lib/libfilament.xcframework",
         "#{filament_path}/lib/libbackend.xcframework",
         "#{filament_path}/lib/libfilabridge.xcframework",
         "#{filament_path}/lib/libfilaflat.xcframework",
         "#{filament_path}/lib/libibl.xcframework",
-        "#{filament_path}/lib/libgeometry.xcframework"
-    ]
-    if filament_path != "ios/libs/filament"
-      engine_frameworks += [
+        "#{filament_path}/lib/libgeometry.xcframework",
         "#{filament_path}/lib/libmeshoptimizer.xcframework",
         "#{filament_path}/lib/libmikktspace.xcframework"
-      ]
-    end
-    ss.vendored_frameworks = engine_frameworks
     ss.dependency "react-native-filament/utils"
     ss.dependency "react-native-filament/math"
   end
