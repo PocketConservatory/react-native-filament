@@ -19,10 +19,11 @@
 
 #include <filament/FilamentAPI.h>
 
-#include <backend/DriverEnums.h>
 #include <backend/CallbackHandler.h>
+#include <backend/DriverEnums.h>
 
 #include <utils/compiler.h>
+#include <utils/ImmutableCString.h>
 #include <utils/StaticString.h>
 
 #include <math/mat3.h>
@@ -69,12 +70,11 @@ class Engine;
  * - Filament invokes low-level graphics commands on the \em{driver thread}.
  * - The thread that calls `beginFrame` is called the \em{main thread}.
  *
- * For ACQUIRED streams, there is no need to perform the copy because Filament explictly acquires
+ * For ACQUIRED streams, there is no need to perform the copy because Filament explicitly acquires
  * the stream, then releases it later via a callback function. This configuration is especially
  * useful when the Vulkan backend is enabled.
  *
- * For NATIVE streams, Filament does not make any synchronization guarantee. However they are simple
- * to use and do not incur a copy. These are often appropriate in video applications.
+ * NATIVE streams are deprecated because they are backend specific and do not make any synchronization guarantee.
  *
  * Please see `sample-stream-test` and `sample-hello-camera` for usage examples.
  *
@@ -100,6 +100,8 @@ public:
     class Builder : public BuilderBase<BuilderDetails>, public BuilderNameMixin<Builder> {
         friend struct BuilderDetails;
     public:
+        using BuilderNameMixin::name;
+
         Builder() noexcept;
         Builder(Builder const& rhs) noexcept;
         Builder(Builder&& rhs) noexcept;
@@ -116,14 +118,17 @@ public:
          *                     be CLAMP_TO_EDGE.
          *
          * @return This Builder, for chaining calls.
+         * @deprecated Use Stream::setAcquiredImage instead.
          */
+        UTILS_DEPRECATED
+        UTILS_NOAPIGEN
         Builder& stream(void* UTILS_NULLABLE stream) noexcept;
 
         /**
          *
          * @param width initial width of the incoming stream. Whether this value is used is
          *              stream dependent. On Android, it must be set when using
-         *              Builder::stream(long externalTextureId).
+         *              Builder::stream.
          *
          * @return This Builder, for chaining calls.
          */
@@ -133,7 +138,7 @@ public:
          *
          * @param height initial height of the incoming stream. Whether this value is used is
          *              stream dependent. On Android, it must be set when using
-         *              Builder::stream(long externalTextureId).
+         *              Builder::stream.
          *
          * @return This Builder, for chaining calls.
          */
@@ -154,6 +159,7 @@ public:
          * @deprecated Use name(utils::StaticString const&) instead.
          */
         UTILS_DEPRECATED
+        UTILS_NOAPIGEN
         Builder& name(const char* UTILS_NONNULL name, size_t len) noexcept;
 
         /**
@@ -164,7 +170,19 @@ public:
          * @param name A string literal to identify this Stream
          * @return This Builder, for chaining calls.
          */
+        UTILS_NOAPIGEN
         Builder& name(utils::StaticString const& name) noexcept;
+
+        /**
+         * Associate an optional name with this Stream for debugging purposes.
+         *
+         * @param name A string to identify this Stream
+         * @return This Builder, for chaining calls.
+         *
+         * @note This method should be avoided in C++ in favor of the `StaticString` overload.
+         *       It exists primarily for language bindings and dynamic string generation.
+         */
+        Builder& name(utils::ImmutableCString const& name) noexcept;
 
         /**
          * Creates the Stream object and returns a pointer to it.
@@ -206,20 +224,22 @@ public:
      *                   releases the image.
      * @param transform  Optional transform matrix to apply to the image.
      */
+    UTILS_NOAPIGEN
     void setAcquiredImage(void* UTILS_NONNULL image,
             Callback UTILS_NONNULL callback, void* UTILS_NULLABLE userdata, math::mat3f const& transform = math::mat3f()) noexcept;
 
     /**
      * @see setAcquiredImage(void*, Callback, void*)
      *
-     * @param image      Pointer to AHardwareBuffer, casted to void* since this is a public header.
+     * @param image      Pointer to AHardwareBuffer (cast to void* since this is a public header).
      * @param handler    Handler to dispatch the AcquiredImage or nullptr for the default handler.
      * @param callback   This is triggered by Filament when it wishes to release the image.
-     *                   It callback tales two arguments: the AHardwareBuffer and the userdata.
+     *                   This callback takes two arguments: the AHardwareBuffer and the userdata.
      * @param userdata   Optional closure data. Filament will pass this into the callback when it
      *                   releases the image.
      * @param transform  Optional transform matrix to apply to the image.
      */
+    UTILS_NOAPIGEN
     void setAcquiredImage(void* UTILS_NONNULL image,
             backend::CallbackHandler* UTILS_NULLABLE handler,
             Callback UTILS_NONNULL callback, void* UTILS_NULLABLE userdata, math::mat3f const& transform = math::mat3f()) noexcept;
@@ -227,7 +247,7 @@ public:
     /**
      * Updates the size of the incoming stream. Whether this value is used is
      *              stream dependent. On Android, it must be set when using
-     *              Builder::stream(long externalTextureId).
+     *              Builder::stream.
      *
      * @param width     new width of the incoming stream
      * @param height    new height of the incoming stream

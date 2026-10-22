@@ -105,10 +105,18 @@ protected:
     bool queryFrameTimestamps(SwapChain const* swapchain, uint64_t frameId,
             FrameTimestamps* outFrameTimestamps) const noexcept override;
 
+    utils::tribool isFrameRateChangeSupported(void* nativeWindow) const noexcept override;
+
+    int setFrameRate(SwapChain const* swapchain, float frameRate,
+            FrameRateCompatibility compatibility,
+            ChangeFrameRateStrategy strategy) noexcept override;
+
     // --------------------------------------------------------------------------------------------
     // OpenGLPlatform Interface
 
     struct SyncEGLAndroid : public Sync {
+        explicit SyncEGLAndroid(EGLSyncKHR sync) noexcept
+            : sync(sync) {}
         EGLSyncKHR sync;
     };
 
@@ -120,6 +128,12 @@ protected:
             uint32_t frameId) noexcept override;
 
     void preCommit() noexcept override;
+
+    /**
+     * Whether `EGL_ANDROID_presentation_time` is available.
+     * @return true if the presentation time can be set, false otherwise
+     */
+    bool isPresentationTimeSupported() const noexcept override;
 
     /**
      * Set the presentation time using `eglPresentationTimeANDROID`
@@ -148,10 +162,11 @@ protected:
 
     struct ExternalImageEGLAndroid : public ExternalImageEGL {
         AHardwareBuffer* aHardwareBuffer = nullptr;
-        uint32_t width;      // Texture width
-        uint32_t height;     // Texture height
-        TextureFormat format;// Texture format
-        TextureUsage usage;  // Texture usage flags
+        uint32_t width;         // Texture width
+        uint32_t height;        // Texture height
+        uint8_t mipLevels = 1;  // Number of mip levels in the AHB (1 if not mipmap-complete)
+        TextureFormat format;   // Texture format
+        TextureUsage usage;     // Texture usage flags
         bool sRGB = false;
 
     protected:
@@ -163,13 +178,16 @@ protected:
     bool setImage(ExternalImageEGLAndroid const* eglExternalImage,
             ExternalTexture* texture) noexcept;
 
+    uint8_t getExternalImageMipLevels(
+            ExternalImageHandleRef externalImage) const noexcept override;
+
     bool makeCurrent(ContextType type,
             SwapChain* drawSwapChain,
             SwapChain* readSwapChain) override;
+    void commit(SwapChain* swapChain) noexcept override;
 
 private:
     struct SwapChainEGLAndroid;
-    struct AndroidDetails;
 
     // prevent derived classes' implementations to call through
     [[nodiscard]] SwapChain* createSwapChain(void* nativeWindow, uint64_t flags) override;
@@ -180,18 +198,12 @@ private:
 
     int32_t setProducerThrottlingEnabled(EGLNativeWindowType nativeWindow, bool enabled) const;
 
-    struct InitializeJvmForPerformanceManagerIfNeeded {
-        InitializeJvmForPerformanceManagerIfNeeded();
-    };
-
     struct ExternalTextureAndroid : public ExternalTexture {
         EGLImageKHR eglImage = EGL_NO_IMAGE;
     };
 
     int mOSVersion;
-    ExternalStreamManagerAndroid& mExternalStreamManager;
-    AndroidDetails& mAndroidDetails;
-    InitializeJvmForPerformanceManagerIfNeeded const mInitializeJvmForPerformanceManagerIfNeeded;
+    ExternalStreamManagerAndroid* mExternalStreamManager = nullptr;
     utils::PerformanceHintManager mPerformanceHintManager;
     utils::PerformanceHintManager::Session mPerformanceHintSession;
     using clock = std::chrono::high_resolution_clock;

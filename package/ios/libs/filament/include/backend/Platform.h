@@ -19,17 +19,23 @@
 #ifndef TNT_FILAMENT_BACKEND_PLATFORM_H
 #define TNT_FILAMENT_BACKEND_PLATFORM_H
 
-#include <utils/CString.h>
 #include <utils/compiler.h>
+#include <utils/CString.h>
 #include <utils/Invocable.h>
 #include <utils/Mutex.h>
-
-#include <stddef.h>
-#include <stdint.h>
+#include <utils/tribool.h>
 
 #include <atomic>
 #include <memory>
 #include <mutex>
+
+#include <stddef.h>
+#include <stdint.h>
+
+namespace utils {
+class FeatureFlagManager;
+class InternalDebugRegistry;
+}
 
 namespace filament::backend {
 
@@ -44,10 +50,59 @@ class Driver;
  */
 class UTILS_PUBLIC Platform {
 public:
-    struct SwapChain {};
-    struct Fence {};
-    struct Stream {};
-    struct Sync {};
+    struct SwapChain {
+    protected:
+        ~SwapChain() = default;
+    };
+
+    struct Fence {
+    protected:
+        ~Fence() = default;
+    };
+
+    struct Stream {
+    protected:
+        ~Stream() = default;
+    };
+
+    struct Sync {
+    protected:
+        ~Sync() = default;
+    };
+
+    /**
+     * Frame rate compatibility mode for setFrameRate().
+     */
+    enum class FrameRateCompatibility : uint8_t {
+        /**
+         * The OS matches the frame rate when the surface is active, but may pick a different
+         * rate to better harmonize with concurrent windows or display power policies.
+         */
+        DEFAULT = 0,
+
+        /**
+         * The surface represents a fixed-rate source (like video). The OS strongly prioritizes
+         * running the display at this exact frame rate regardless of concurrent compositing.
+         */
+        FIXED_SOURCE = 1
+    };
+
+    /**
+     * Frame rate change strategy for setFrameRate().
+     */
+    enum class ChangeFrameRateStrategy : uint8_t {
+        /**
+         * The frame rate transition is applied only if the display controller can perform it
+         * seamlessly without visual glitches or disruptive display mode switch blackouts.
+         */
+        ONLY_IF_SEAMLESS = 0,
+
+        /**
+         * The transition is applied immediately, even if it requires a non-seamless display
+         * mode switch that introduces brief screen interruptions or visual artifacts.
+         */
+        ALWAYS = 1
+    };
 
     using SyncCallback = void(*)(Sync* UTILS_NONNULL sync, void* UTILS_NULLABLE userData);
 
@@ -105,13 +160,6 @@ public:
         using duration_ns = int64_t;
         static constexpr time_point_ns INVALID = -1;    //!< value not supported
         /**
-         * The timestamp [ns] since epoch of the next time the compositor will begin composition.
-         * This is effectively the deadline for when the compositor must receive a newly queued
-         * frame.
-         */
-        time_point_ns compositeDeadline;
-
-        /**
          * The time delta [ns] between subsequent composition events.
          */
         duration_ns compositeInterval;
@@ -121,24 +169,6 @@ public:
          * that composition. This can be used to estimate the latency of the actual present time.
          */
         duration_ns compositeToPresentLatency;
-
-        /**
-         * The timestamp [ns] since epoch of the system's expected presentation time.
-         * INVALID if not supported.
-         */
-        time_point_ns expectedPresentTime;
-
-        /**
-         * The timestamp [ns] since epoch of the current frame's start (i.e. vsync)
-         * INVALID if not supported.
-         */
-        time_point_ns frameTime;
-
-        /**
-         * The timestamp [ns] since epoch of the current frame's deadline
-         * INVALID if not supported.
-         */
-        time_point_ns frameTimelineDeadline;
     };
 
     struct FrameTimestamps {
@@ -226,6 +256,18 @@ public:
     };
 
     /**
+     * Types of device/driver information that can be queried from the platform.
+     */
+    enum class DeviceInfoType {
+        OPENGL_RENDERER,    //!< glGetString(GL_RENDERER)
+        OPENGL_VENDOR,      //!< glGetString(GL_VENDOR)
+        OPENGL_VERSION,     //!< glGetString(GL_VERSION)
+        VULKAN_DEVICE_NAME, //!< VkPhysicalDeviceProperties::deviceName
+        VULKAN_DRIVER_NAME, //!< VkPhysicalDeviceDriverProperties::driverName
+        VULKAN_DRIVER_INFO, //!< VkPhysicalDeviceDriverProperties::driverInfo
+    };
+
+    /**
      * This controls the priority level for GPU work scheduling, which helps prioritize the
      * submitted GPU work and enables preemption.
      */
@@ -279,6 +321,16 @@ public:
 
     struct DriverConfig {
         /**
+         * Reference to the system's FeatureFlagManager. Can be nullptr.
+         */
+        utils::FeatureFlagManager const * UTILS_NULLABLE featureFlagManager = nullptr;
+
+        /**
+         * Reference to the system's DebugRegistry. Can be nullptr.
+         */
+        utils::InternalDebugRegistry const* UTILS_NULLABLE debugRegistry = nullptr;
+
+        /**
          * Size of handle arena in bytes. Setting to 0 indicates default value is to be used.
          * Driver clamps to valid values.
          */
@@ -286,28 +338,6 @@ public:
 
         size_t metalUploadBufferSizeBytes = 512 * 1024;
 
-        /**
-         * Set to `true` to forcibly disable parallel shader compilation in the backend.
-         * Currently only honored by the GL and Metal backends, and the Vulkan backend
-         * when some experimental features are enabled.
-         */
-        bool disableParallelShaderCompile = false;
-
-        /**
-         * Set to `true` to forcibly disable amortized shader compilation in the backend.
-         * Currently only honored by the GL backend.
-         */
-        bool disableAmortizedShaderCompile = true;
-
-        /**
-         * Disable backend handles use-after-free checks.
-         */
-        bool disableHandleUseAfterFreeCheck = false;
-
-        /**
-         * Disable backend handles tags for heap allocated (fallback) handles
-         */
-        bool disableHeapHandleTags = false;
 
         /**
          * Force GLES2 context if supported, or pretend the context is ES2. Only meaningful on
@@ -321,11 +351,11 @@ public:
         StereoscopicType stereoscopicType = StereoscopicType::NONE;
 
         /**
-         * Assert the native window associated to a SwapChain is valid when calling makeCurrent().
-         * This is only supported for:
-         *      - PlatformEGLAndroid
+         * The number of eyes to render when stereoscopic rendering is enabled. Supported values are
+         * between 1 and Engine::getMaxStereoscopicEyes() (inclusive).
          */
-        bool assertNativeWindowIsValid = false;
+        uint8_t stereoscopicEyeCount = 2;
+
 
         /**
          * The action to take if a Drawable cannot be acquired. If true, the
@@ -342,24 +372,6 @@ public:
         GpuContextPriority gpuContextPriority = GpuContextPriority::DEFAULT;
 
         /**
-         * Enables asynchronous pipeline cache preloading, if supported on this device.
-         * This is only supported for:
-         *      - VulkanPlatform
-         * When the following device extensions are available:
-         *      - VK_KHR_dynamic_rendering
-         *      - VK_EXT_vertex_input_dynamic_state
-         * Should be enabled only for devices where it has been shown this is effective.
-         */
-        bool vulkanEnableAsyncPipelineCachePrewarming = false;
-
-        /**
-         * Bypass the staging buffer because the device is of Unified Memory Architecture.
-         * This is only supported for:
-         *      - VulkanPlatform
-         */
-        bool vulkanEnableStagingBufferBypass = false;
-
-        /**
          * Asynchronous mode for the engine. Defines how asynchronous operations are handled.
          */
         AsynchronousMode asynchronousMode = AsynchronousMode::NONE;
@@ -374,6 +386,16 @@ public:
      * @return The OS version.
      */
     virtual int getOSVersion() const noexcept = 0;
+
+    /**
+     * Queries device/driver information of the graphics API.
+     * @param infoType the type of information to query.
+     * @param driver a pointer to the current driver.
+     * @return a CString containing the requested information.
+     */
+    virtual utils::CString getDeviceInfo(DeviceInfoType infoType,
+            Driver* UTILS_NULLABLE driver) const = 0;
+
 
     /**
      * Creates and initializes the low-level API (e.g. an OpenGL context or Vulkan instance),
@@ -409,17 +431,19 @@ public:
      * @return true if this Platform supports compositor timings, false otherwise [default]
      * @see queryCompositorTiming()
      * @see setPresentFrameId()
-     * @see queryFrameTimestamps()
+     * @see queryFrameTimestamps
      */
     virtual bool isCompositorTimingSupported() const noexcept;
 
     /**
      * If compositor timing is supported, fills the provided CompositorTiming structure
      * with timing information form the compositor the swapchain's native window is using.
-     * The swapchain'snative window must be valid (i.e. not a headless swapchain).
+     * The swapchain's native window must be valid (i.e. not a headless swapchain).
+     *
      * @param swapchain to query the compositor timing from
+     * @param outCompositorTiming
      * @return true on success, false otherwise (e.g. if not supported)
-     * @see isCompositorTimingSupported()
+     * @see isCompositorTimingSupported
      */
     virtual bool queryCompositorTiming(SwapChain const* UTILS_NONNULL swapchain,
             CompositorTiming* UTILS_NONNULL outCompositorTiming) const noexcept;
@@ -433,8 +457,8 @@ public:
      * @param swapchain
      * @param frameId
      * @return true on success, false otherwise
-     * @see isCompositorTimingSupported()
-     * @see queryFrameTimestamps()
+     * @see isCompositorTimingSupported
+     * @see queryFrameTimestamps
      */
     virtual bool setPresentFrameId(SwapChain const* UTILS_NONNULL swapchain,
             uint64_t frameId) noexcept;
@@ -450,11 +474,31 @@ public:
      * @param frameId frame we're interested it
      * @param outFrameTimestamps output structure receiving the timestamps
      * @return true if successful, false otherwise
-     * @see isCompositorTimingSupported()
-     * @see setPresentFrameId()
+     * @see isCompositorTimingSupported
+     * @see setPresentFrameId
      */
     virtual bool queryFrameTimestamps(SwapChain const* UTILS_NONNULL swapchain,
             uint64_t frameId, FrameTimestamps* UTILS_NONNULL outFrameTimestamps) const noexcept;
+
+    /**
+     * Whether the specified native window supports frame rate changes.
+     *
+     * @param nativeWindow OS-specific native window (e.g. ANativeWindow* on Android).
+     * @return utils::tribool indicating True, False, or Indeterminate
+     */
+    virtual utils::tribool isFrameRateChangeSupported(void* UTILS_NULLABLE nativeWindow) const noexcept;
+
+    /**
+     * Set the intended frame rate on the specified swapchain.
+     *
+     * @param swapchain     Target backend SwapChain.
+     * @param frameRate     The intended frame rate in frames per second. 0.0f clears/resets the rate.
+     * @param compatibility Frame rate compatibility mode.
+     * @param strategy      Change strategy for non-seamless transitions.
+     * @return 0 on success or negative error code on failure
+     */
+    virtual int setFrameRate(SwapChain const* UTILS_NONNULL swapchain, float frameRate,
+            FrameRateCompatibility compatibility, ChangeFrameRateStrategy strategy) noexcept;
 
     // --------------------------------------------------------------------------------------------
     // Caching APIs
@@ -559,16 +603,18 @@ public:
 
     /**
      * Sets the callback function that the backend can use to update backend-specific statistics
-     * to aid with debugging. This callback is guaranteed to be called on the Filament driver
-     * thread.
+     * to aid with debugging. This callback can be called on either the Filament main thread or
+     * the Filament driver thread.
      *
      * The callback signature is (key, intValue, stringValue). Note that for any given call,
      * only one of the value parameters (intValue or stringValue) will be meaningful, depending on
      * the specific key.
      *
-     * IMPORTANT_NOTE: because the callback is called on the driver thread, only quick, non-blocking
-     * work should be done inside it. Furthermore, no graphics API calls (such as GL calls) should
-     * be made, which could interfere with Filament's driver state.
+     * IMPORTANT_NOTE: because the callback can be called on the driver thread, only quick,
+     * non-blocking work should be done inside it. Furthermore, no graphics API calls (such as GL
+     * calls) should be made, which could interfere with Filament's driver state. Lastly, the
+     * callback implementation must be synchronized (thread-safe) since it can be called from
+     * either thread.
      *
      * @param debugUpdateStat   an Invocable that updates debug statistics
      */
@@ -585,8 +631,7 @@ public:
      * with a given key. It is possible for this function to be called multiple times with the
      * same key, in which case newer values should overwrite older values.
      *
-     * This function is guaranteed to be called only on a single thread, the Filament driver
-     * thread.
+     * This function can be called on either the Filament main thread or the Filament driver thread.
      *
      * @param key           a null-terminated C-string with the key of the debug statistic
      * @param intValue      the updated integer value of key (the string value passed to the
@@ -600,8 +645,7 @@ public:
      * with a given key. It is possible for this function to be called multiple times with the
      * same key, in which case newer values should overwrite older values.
      *
-     * This function is guaranteed to be called only on a single thread, the Filament driver
-     * thread.
+     * This function can be called on either the Filament main thread or the Filament driver thread.
      *
      * @param key           a null-terminated C-string with the key of the debug statistic
      * @param stringValue   the updated string value of key (the integer value passed to the
@@ -610,10 +654,10 @@ public:
     void debugUpdateStat(const char* UTILS_NONNULL key, utils::CString stringValue);
 
 private:
-    std::shared_ptr<InsertBlobFunc> mInsertBlob;
-    std::shared_ptr<RetrieveBlobFunc> mRetrieveBlob;
-    std::shared_ptr<DebugUpdateStatFunc> mDebugUpdateStat;
     mutable utils::Mutex mMutex;
+    std::shared_ptr<InsertBlobFunc> mInsertBlob UTILS_GUARDED_BY(mMutex);
+    std::shared_ptr<RetrieveBlobFunc> mRetrieveBlob UTILS_GUARDED_BY(mMutex);
+    std::shared_ptr<DebugUpdateStatFunc> mDebugUpdateStat UTILS_GUARDED_BY(mMutex);
 };
 
 } // namespace filament

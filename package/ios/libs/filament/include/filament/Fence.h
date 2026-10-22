@@ -36,6 +36,7 @@ class UTILS_PUBLIC Fence : public FilamentAPI {
 public:
     //! Special \p timeout value to disable wait()'s timeout.
     static constexpr uint64_t FENCE_WAIT_FOR_EVER = backend::FENCE_WAIT_FOR_EVER;
+    static constexpr uint64_t WAIT_FOR_EVER = FENCE_WAIT_FOR_EVER;
 
     //! Error codes for Fence::wait()
     using FenceStatus = backend::FenceStatus;
@@ -57,11 +58,14 @@ public:
      * Blocks the current thread until the Fence signals.
      *
      * @param mode      Whether the command stream is flushed before waiting or not.
-     * @param timeout   Wait time out. Using a \p timeout of 0 is a way to query the state of the fence.
+     * @param timeout   Wait time out in nanoseconds. Using a \p timeout of 0 is a way to query the state of the fence.
      *                  A \p timeout value of FENCE_WAIT_FOR_EVER is used to disable the timeout.
      * @return          FenceStatus::CONDITION_SATISFIED on success,
      *                  FenceStatus::TIMEOUT_EXPIRED if the time out expired or
      *                  FenceStatus::ERROR in other cases.
+     * @throws std::exception (or derived) if the backend thread encountered an unrecoverable error (when exceptions are enabled and mode is Mode::FLUSH).
+     * @throws utils::Panic if called again after a backend exception was already thrown.
+     *
      * @see #Mode
      */
     FenceStatus wait(Mode mode = Mode::FLUSH, uint64_t timeout = FENCE_WAIT_FOR_EVER);

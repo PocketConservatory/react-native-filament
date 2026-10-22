@@ -22,16 +22,16 @@
 #include <filament/FilamentAPI.h>
 
 #include <utils/compiler.h>
+#include <utils/Slice.h>
 
+#include <math/mat4.h>
 #include <math/mathfwd.h>
 #include <math/vec2.h>
 #include <math/vec4.h>
-#include <math/mat4.h>
 
 #include <math.h>
-
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 namespace utils {
 class Entity;
@@ -273,7 +273,7 @@ public:
      * @param near      distance in world units from the camera to the near plane.
      * @param far       distance in world units from the camera to the far plane. \p far != \p near.
      */
-    void setCustomProjection(math::mat4 const& projection, double near, double far) noexcept;
+    void setCustomProjection(math::mat4 const& projection, double near, double far);
 
     /** Sets the projection matrix.
      *
@@ -286,7 +286,7 @@ public:
      * @param far       distance in world units from the camera to the far plane. \p far != \p near.
      */
     void setCustomProjection(math::mat4 const& projection, math::mat4 const& projectionForCulling,
-            double near, double far) noexcept;
+            double near, double far);
 
     /** Sets a custom projection matrix for each eye.
      *
@@ -306,12 +306,18 @@ public:
      * @see setCustomProjection
      * @see Engine::Config::stereoscopicEyeCount
      */
-    void setCustomEyeProjection(math::mat4 const* UTILS_NONNULL projection, size_t count,
+    void setCustomEyeProjection(utils::Slice<const math::mat4> projection,
             math::mat4 const& projectionForCulling, double near, double far);
+
+    UTILS_NOAPIGEN
+    inline void setCustomEyeProjection(math::mat4 const* UTILS_NONNULL projection, size_t count,
+            math::mat4 const& projectionForCulling, double near, double far) {
+        setCustomEyeProjection({ projection, count }, projectionForCulling, near, far);
+    }
 
     /** Sets an additional matrix that scales the projection matrix.
      *
-     * This is useful to adjust the aspect ratio of the camera independent from its projection.
+     * This is useful to adjust the aspect ratio of the camera independent of its projection.
      * First, pass an aspect of 1.0 to setProjection. Then set the scaling with the desired aspect
      * ratio:
      *
@@ -456,6 +462,14 @@ public:
 
     //! Returns the camera's view matrix (inverse of the model matrix)
     math::mat4 getViewMatrix() const noexcept;
+
+    /** Returns the eye from view matrix for the specified eye.
+     *
+     * @param eyeId the index of the eye to return the eye from view matrix for, must be
+     *              < config.stereoscopicEyeCount
+     * @return The eye from view matrix
+     */
+    math::mat4 getEyeFromViewMatrix(uint8_t eyeId = 0) const noexcept;
 
     //! Returns the camera's position in world space
     math::double3 getPosition() const noexcept;
