@@ -5,6 +5,7 @@
 #include "RNFEngineImpl.h"
 
 #include "RNFReferences.h"
+#include "RNFWebpTextureProvider.h"
 #include "utils/RNFConverter.h"
 
 #include <filament/Camera.h>
@@ -65,18 +66,21 @@ EngineImpl::EngineImpl(std::shared_ptr<Dispatcher> rendererDispatcher, std::shar
   // Add texture providers to the resource loader
   auto* stbProvider = filament::gltfio::createStbProvider(engine.get());
   auto* ktx2Provider = filament::gltfio::createKtx2Provider(engine.get());
+  auto* webpProvider = createWebpTextureProvider(engine.get());
   resourceLoaderPtr->addTextureProvider("image/jpeg", stbProvider);
   resourceLoaderPtr->addTextureProvider("image/png", stbProvider);
   resourceLoaderPtr->addTextureProvider("image/ktx2", ktx2Provider);
+  resourceLoaderPtr->addTextureProvider("image/webp", webpProvider);
 
   _resourceLoader = References<gltfio::ResourceLoader>::adoptEngineRef(
       engine, resourceLoaderPtr,
-      [stbProvider, ktx2Provider, rendererDispatcher](std::shared_ptr<Engine> engine, gltfio::ResourceLoader* resourceLoader) {
+      [stbProvider, ktx2Provider, webpProvider, rendererDispatcher](std::shared_ptr<Engine> engine, gltfio::ResourceLoader* resourceLoader) {
         Logger::log(TAG, "Destroying resource loader...");
         resourceLoader->evictResourceData();
         delete resourceLoader;
         delete stbProvider;
         delete ktx2Provider;
+        delete webpProvider;
       });
 
   // Setup filament:
