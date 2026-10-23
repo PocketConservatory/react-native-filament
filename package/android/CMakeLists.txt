@@ -90,6 +90,7 @@ add_library(
     ../cpp/core/RNFLightManagerWrapper.cpp
     ../cpp/core/RNFRendererWrapper.cpp
     ../cpp/core/RNFWebPExport.cpp
+    ../cpp/core/RNFWebpTextureProvider.cpp
 
     # Filament Utils
     ../cpp/core/utils/RNFEntityWrapper.cpp
