@@ -23,16 +23,17 @@
 
 #include <bluevk/BlueVK.h>
 
+#include <utils/compiler.h>
 #include <utils/CString.h>
 #include <utils/FixedCapacityVector.h>
 #include <utils/Hash.h>
+#include <utils/ImmutableCString.h>
 #include <utils/PrivateImplementation.h>
 
 #include <cstddef>
+#include <cstring>
 #include <functional>
-#include <string>
 #include <tuple>
-#include <unordered_set>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -53,16 +54,22 @@ struct VulkanCmdFence;
 /**
  * A Platform interface that creates a Vulkan backend.
  */
-class VulkanPlatform : public Platform, utils::PrivateImplementation<VulkanPlatformPrivate> {
+class UTILS_SHARED_LINKING VulkanPlatform : public Platform,
+                                            utils::PrivateImplementation<VulkanPlatformPrivate> {
 public:
-
-    struct ExtensionHashFn {
-        std::size_t operator()(utils::CString const& s) const noexcept {
-            return std::hash<std::string>{}(s.data());
-        }
+    /**
+     * Encapsulates information required to instantiate a known external format,
+     * typically for the purpose of preloading a pipeline cache for materials using
+     * external formats for samplers.
+     */
+    struct ExternalYcbcrFormat {
+        uint64_t externalFormat;
+        VkSamplerYcbcrModelConversion ycbcrModelConversion;
+        VkSamplerYcbcrRange ycbcrRange;
     };
+
     // Utility for managing device or instance extensions during initialization.
-    using ExtensionSet = std::unordered_set<utils::CString, ExtensionHashFn>;
+    using ExtensionSet = utils::FixedCapacityVector<utils::ImmutableCString>;
 
     /**
      * A collection of handles to objects and metadata that comprises a Vulkan context. The client
@@ -80,7 +87,7 @@ public:
         // where the gpu only has one graphics queue. Then the client needs to ensure that no
         // concurrent access can occur.
         uint32_t graphicsQueueIndex = 0xFFFFFFFF;
-        bool debugUtilsSupported = false;
+        bool debugUtilsEnabled = false;
         bool debugMarkersSupported = false;
         bool multiviewSupported = false;
     };
@@ -125,6 +132,8 @@ public:
         return 0;
     }
 
+    utils::CString getDeviceInfo(DeviceInfoType infoType, Driver* driver) const override;
+
     // ----------------------------------------------------
     // ---------- Platform Customization options ----------
     struct Customization {
@@ -157,6 +166,12 @@ public:
          * presentation. Default is true.
          */
         bool transitionSwapChainImageLayoutForPresent = true;
+
+        /**
+         * The number of frames before an unused framebuffer is evicted from the cache.
+         * Default is 3.
+         */
+        uint32_t timeBeforeEvictionFbo = 3;
     };
 
     /**
@@ -237,12 +252,10 @@ public:
     /**
      * Creates a Platform::Sync object, which tracks a fence and its status,
      * and allows conversion to an external sync.
-     * @param fence         The underlying VkFence to use for synchronization.
-     * @param fenceStatus   An object tracking the fence's state
+     * @param fenceStatus   An object tracking the fence and its current state.
      * @return              A Platform::Sync object tracking the provided fence.
      */
-    virtual Platform::Sync* createSync(VkFence fence,
-            std::shared_ptr<VulkanCmdFence> fenceStatus) noexcept;
+    virtual Platform::Sync* createSync(std::shared_ptr<VulkanCmdFence> fenceStatus) noexcept;
 
     /**
      * Destroys a sync. If called with a sync not created by this platform
@@ -342,6 +355,11 @@ public:
         uint32_t height;
 
         /**
+         * The number of mipmap levels of the external image
+         */
+        uint32_t mipLevels;
+
+        /**
          * The layer count of the external image
          */
         uint32_t layers;
@@ -400,6 +418,20 @@ public:
          * Ycbcr y chroma offset
          */
         VkChromaLocation yChromaOffset;
+
+        /*
+         * YUV is software decoded (YV12 or 8Cb8Cr8_420) for use to 
+         * copy from staging to a GPU sampleable tiled YUV image
+         */
+       bool isStagingRequired;
+
+       /*
+        * Adding an explicit field for chroma conversion
+        * requirement.
+        * Per Vulkan requirement all YUV texture require the creation of a VkSamplerYcbcrModelConversion
+        * https://docs.vulkan.org/refpages/latest/refpages/source/VkSamplerYcbcrModelConversion.html
+        */
+       bool isChromaConversionRequired;
     };
 
 
@@ -409,10 +441,19 @@ public:
         return {};
     }
 
+    // We need a platform agnostic way to copy from ExternalImageHandleRef for the YUV staging path
+    virtual bool copyExternalImageToMemoryYUV(ExternalImageHandleRef image, void* dstData,
+            uint32_t width, uint32_t height) const {
+        return false;
+    }
+
     struct ImageData {
         struct Bundle {
             VkImage image = VK_NULL_HANDLE;
             VkDeviceMemory memory = VK_NULL_HANDLE;
+            // For CPU decoded YUV images we need a CPU staging buffer
+            VkBuffer stagingBuffer = VK_NULL_HANDLE;
+            VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
 
             inline bool valid() const noexcept {
                 return image != VK_NULL_HANDLE;
@@ -427,13 +468,39 @@ public:
         Bundle external;
     };
 
-    virtual ImageData createVkImageFromExternal(ExternalImageHandleRef image) const {
+    virtual ImageData createVkImageFromExternal(ExternalImageHandleRef image,
+            uint32_t logicalWidth, uint32_t logicalHeight) const {
         return {};
     }
 
+    /**
+     * Whether this platform can honor setPresentationTime().
+     *
+     * The default implementation returns true when the `VK_GOOGLE_display_timing` device
+     * extension is enabled, which is what the swapchain implementation provided by Filament uses
+     * to schedule the presentation. A platform that overrides setPresentationTime() to schedule
+     * the presentation by other means must also override this method.
+     *
+     * @return true if setPresentationTime() is honored by this platform, false otherwise.
+     * @see setPresentationTime()
+     */
+    virtual bool isPresentationTimeSupported() const noexcept;
+
+    /**
+     * On certain platforms, it is possible to set the time that the committed buffers should be
+     * presented at. This affects all of the commited buffers across all swapchains provided to the
+     * backend. Set to 0 if this behavior is not desired. This is only honored if
+     * isPresentationTimeSupported() returns true.
+     *
+     * @param intended present time
+     * @see isPresentationTimeSupported()
+     */
+    virtual void setPresentationTime(int64_t presentTime) noexcept;
+
 protected:
-    struct VulkanSync : public Platform::Sync {
-        VkFence fence;
+    struct VulkanSync : public Sync {
+        explicit VulkanSync(std::shared_ptr<VulkanCmdFence> fence) noexcept
+            : fenceStatus(std::move(fence)) {}
         std::shared_ptr<VulkanCmdFence> fenceStatus;
     };
 
@@ -493,6 +560,22 @@ protected:
      */
     bool isTransientAttachmentSupported() const noexcept;
 
+    /**
+     * Query if RenderDoc capture mode is enabled for the backend.
+     */
+    bool isRenderDocCaptureEnabled() const noexcept;
+
+    /**
+     * For pipeline cache prewarming, if external samplers are present, we need to build
+     * the fake pipeline using the proper formats specified. Since there's no way to
+     * get these at material build time, we allow the app to register them before
+     * creating materials.
+     *
+     * @param format The format, containing the external format value which should be
+     *               extracted from an AHardwareBuffer.
+     */
+    void registerPipelineCachePrewarmExternalFormat(const ExternalYcbcrFormat& format) noexcept;
+
 private:
     /**
      * Contains information about features that should be requested
@@ -511,9 +594,14 @@ private:
          * to be created from a 3d VkImage.
          */
         bool imageView2Don3DImage;
+
+        /**
+         * Desired global priority value for all VkQueue at a system level.
+         */
+        Platform::GpuContextPriority gpuContextPriority = Platform::GpuContextPriority::DEFAULT;
     };
 
-    void createInstance(ExtensionSet const& requiredExts) noexcept;
+    void createInstance(ExtensionSet const& requiredExts, bool enableRenderdoc = false) noexcept;
 
     void queryAndSetDeviceFeatures(Platform::DriverConfig const& driverConfig,
             ExtensionSet const& instExts, ExtensionSet const& deviceExts,

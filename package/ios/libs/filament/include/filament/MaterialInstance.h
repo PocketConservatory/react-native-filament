@@ -17,17 +17,19 @@
 #ifndef TNT_FILAMENT_MATERIALINSTANCE_H
 #define TNT_FILAMENT_MATERIALINSTANCE_H
 
-#include <filament/FilamentAPI.h>
 #include <filament/Color.h>
 #include <filament/Engine.h>
+#include <filament/FilamentAPI.h>
 #include <filament/MaterialEnums.h>
 
 #include <backend/DriverEnums.h>
 
 #include <utils/compiler.h>
+#include <utils/Slice.h>
 
 #include <math/mathfwd.h>
 
+#include <string_view>
 #include <type_traits>
 
 #include <stddef.h>
@@ -42,11 +44,18 @@ class TextureSampler;
 class UniformBuffer;
 class BufferInterfaceBlock;
 
-class UTILS_PUBLIC MaterialInstance : public FilamentAPI {
+/**
+ * A MaterialInstance represents a specific instance of a Material.
+ *
+ * While a Material defines the shader code and the set of parameters, a MaterialInstance
+ * holds the specific values for those parameters.
+ *
+ */
+class UTILS_PUBLIC UTILS_APIGEN_USED_BY_NATIVE MaterialInstance : public FilamentAPI {
     template<size_t N>
-    using StringLiteralHelper = const char[N];
+    using StringLiteralHelper UTILS_NOAPIGEN = const char[N];
 
-    struct StringLiteral {
+    struct UTILS_NOAPIGEN StringLiteral {
         const char* UTILS_NONNULL data;
         size_t size;
         template<size_t N>
@@ -56,11 +65,11 @@ class UTILS_PUBLIC MaterialInstance : public FilamentAPI {
     };
 
 public:
-    using CullingMode = backend::CullingMode;
+    using CullingMode UTILS_NOAPIGEN = backend::CullingMode;
     // ReSharper disable once CppRedundantQualifier
-    using TransparencyMode = filament::TransparencyMode;
-    using DepthFunc = backend::SamplerCompareFunc;
-    using StencilCompareFunc = backend::SamplerCompareFunc;
+    using TransparencyMode UTILS_NOAPIGEN = filament::TransparencyMode;
+    using DepthFunc UTILS_NOAPIGEN = backend::SamplerCompareFunc;
+    using StencilCompareFunc UTILS_NOAPIGEN = backend::SamplerCompareFunc;
     using StencilOperation = backend::StencilOperation;
     using StencilFace = backend::StencilFace;
 
@@ -87,6 +96,12 @@ public:
             std::is_same_v<math::mat3f, T>
     >;
 
+    template<typename T>
+    using is_supported_constant_parameter_t = std::enable_if_t<
+            std::is_same_v<int32_t, T> ||
+            std::is_same_v<float, T> ||
+            std::is_same_v<bool, T>>;
+
     /**
      * Creates a new MaterialInstance using another MaterialInstance as a template for initialization.
      * The new MaterialInstance is an instance of the same Material of the template instance and
@@ -102,6 +117,7 @@ public:
     /**
      * @return the Material associated with this instance
      */
+    UTILS_APIGEN_RETAINED
     Material const* UTILS_NONNULL getMaterial() const noexcept;
 
     /**
@@ -112,16 +128,25 @@ public:
     /**
      * Set a uniform by name
      *
+     * Supported types:
+     * - float, float2, float3, float4
+     * - int, int2, int3, int4
+     * - uint, uint2, uint3, uint4
+     * - bool, bool2, bool3, bool4
+     * - mat3f, mat4f
+     *
      * @param name          Name of the parameter as defined by Material. Cannot be nullptr.
      * @param nameLength    Length in `char` of the name parameter.
      * @param value         Value of the parameter to set.
      * @throws utils::PreConditionPanic if name doesn't exist or no-op if exceptions are disabled.
      */
     template<typename T, typename = is_supported_parameter_t<T>>
+    UTILS_NOAPIGEN
     void setParameter(const char* UTILS_NONNULL name, size_t nameLength, T const& value);
 
     /** inline helper to provide the name as a null-terminated string literal */
     template<typename T, typename = is_supported_parameter_t<T>>
+    UTILS_NOAPIGEN
     void setParameter(StringLiteral const name, T const& value) {
         setParameter<T>(name.data, name.size, value);
     }
@@ -144,20 +169,35 @@ public:
      * @see Material::hasParameter
      */
     template<typename T, typename = is_supported_parameter_t<T>>
+    UTILS_NOAPIGEN
     void setParameter(const char* UTILS_NONNULL name, size_t nameLength,
             const T* UTILS_NONNULL values, size_t count);
 
     /** inline helper to provide the name as a null-terminated string literal */
     template<typename T, typename = is_supported_parameter_t<T>>
+    UTILS_NOAPIGEN
     void setParameter(StringLiteral const name, const T* UTILS_NONNULL values, size_t const count) {
         setParameter<T>(name.data, name.size, values, count);
     }
 
-    /** inline helper to provide the name as a null-terminated C string */
+    /**
+     * Set a uniform array by name
+     *
+     * @param name          Name of the parameter array as defined by Material.
+     * @param values        Slice of values to set to the named parameter array.
+     * @throws utils::PreConditionPanic if name doesn't exist or no-op if exceptions are disabled.
+     * @see Material::hasParameter
+     */
     template<typename T, typename = is_supported_parameter_t<T>>
-    void setParameter(const char* UTILS_NONNULL name,
-                      const T* UTILS_NONNULL values, size_t const count) {
-        setParameter<T>(name, strlen(name), values, count);
+    void setParameter(std::string_view name,
+            UTILS_APIGEN_TAGGED_ARRAY utils::Slice<const T> values) {
+        setParameter<T>(name.data(), name.size(), values.data(), values.size());
+    }
+
+    template<typename T, typename = is_supported_parameter_t<T>>
+    UTILS_NOAPIGEN
+    inline void setParameter(const char* UTILS_NONNULL name, const T* UTILS_NONNULL values, size_t count) {
+        setParameter<T>(std::string_view(name), { values, count });
     }
 
 
@@ -173,10 +213,12 @@ public:
      * @param sampler       Sampler parameters.
      * @throws utils::PreConditionPanic if name doesn't exist or no-op if exceptions are disabled.
      */
+    UTILS_NOAPIGEN
     void setParameter(const char* UTILS_NONNULL name, size_t nameLength,
             Texture const* UTILS_NULLABLE texture, TextureSampler const& sampler);
 
     /** inline helper to provide the name as a null-terminated string literal */
+    UTILS_NOAPIGEN
     void setParameter(StringLiteral const name,
                       Texture const* UTILS_NULLABLE texture, TextureSampler const& sampler) {
         setParameter(name.data, name.size, texture, sampler);
@@ -199,10 +241,12 @@ public:
      * @param color         Array of read, green, blue channels values.
      * @throws utils::PreConditionPanic if name doesn't exist or no-op if exceptions are disabled.
      */
+    UTILS_NOAPIGEN
     void setParameter(const char* UTILS_NONNULL name, size_t nameLength,
             RgbType type, math::float3 color);
 
     /** inline helper to provide the name as a null-terminated string literal */
+    UTILS_NOAPIGEN
     void setParameter(StringLiteral const name, RgbType const type, math::float3 const color) {
         setParameter(name.data, name.size, type, color);
     }
@@ -223,10 +267,12 @@ public:
      * @param color         Array of read, green, blue and alpha channels values.
      * @throws utils::PreConditionPanic if name doesn't exist or no-op if exceptions are disabled.
      */
+    UTILS_NOAPIGEN
     void setParameter(const char* UTILS_NONNULL name, size_t nameLength,
             RgbaType type, math::float4 color);
 
     /** inline helper to provide the name as a null-terminated string literal */
+    UTILS_NOAPIGEN
     void setParameter(StringLiteral const name, RgbaType const type, math::float4 const color) {
         setParameter(name.data, name.size, type, color);
     }
@@ -248,18 +294,112 @@ public:
      * @see Material::hasParameter
      */
     template<typename T>
+    UTILS_NOAPIGEN
     T getParameter(const char* UTILS_NONNULL name, size_t nameLength) const;
 
     /** inline helper to provide the name as a null-terminated C string */
     template<typename T, typename = is_supported_parameter_t<T>>
+    UTILS_NOAPIGEN
     T getParameter(StringLiteral const name) const {
         return getParameter<T>(name.data, name.size);
     }
 
     /** inline helper to provide the name as a null-terminated C string */
     template<typename T, typename = is_supported_parameter_t<T>>
+    UTILS_NOAPIGEN
     T getParameter(const char* UTILS_NONNULL name) const {
         return getParameter<T>(name, strlen(name));
+    }
+
+    /**
+     * Overrides a specialization constant of this material instance.
+     *
+     * @tparam T    The type of the constant. Must be int32_t, float, or bool.
+     * @param name  The name of the constant as defined in the material. Cannot be nullptr.
+     * @param nameLength Length in `char` of the name parameter.
+     * @param value The value of the constant.
+     *
+     * @see Material::Builder::constant
+     */
+    template<typename T, typename = is_supported_constant_parameter_t<T>>
+    UTILS_NOAPIGEN
+    void setConstant(const char* UTILS_NONNULL name, size_t nameLength, T value);
+
+    /** inline helper to provide the name as a null-terminated string literal */
+    template<typename T, typename = is_supported_constant_parameter_t<T>>
+    UTILS_NOAPIGEN
+    void setConstant(StringLiteral const name, T value) {
+        setConstant<T>(name.data, name.size, value);
+    }
+
+    /** inline helper to provide the name as a null-terminated C string */
+    template<typename T, typename = is_supported_constant_parameter_t<T>>
+    void setConstant(const char* UTILS_NONNULL name, T value) {
+        setConstant<T>(name, strlen(name), value);
+    }
+
+    /**
+     * Gets the value of a specialization constant by name.
+     *
+     * @tparam T    The type of the constant. Must be int32_t, float, or bool.
+     * @param name  The name of the constant as defined in the material. Cannot be nullptr.
+     * @param nameLength Length in `char` of the name parameter.
+     * @return The value of the constant.
+     */
+    template<typename T, typename = is_supported_constant_parameter_t<T>>
+    UTILS_NOAPIGEN
+    T getConstant(const char* UTILS_NONNULL name, size_t nameLength) const;
+
+    /** inline helper to provide the name as a null-terminated C string */
+    template<typename T, typename = is_supported_constant_parameter_t<T>>
+    UTILS_NOAPIGEN
+    T getConstant(StringLiteral const name) const {
+        return getConstant<T>(name.data, name.size);
+    }
+
+    /** inline helper to provide the name as a null-terminated C string */
+    template<typename T, typename = is_supported_constant_parameter_t<T>>
+    T getConstant(const char* UTILS_NONNULL name) const {
+        return getConstant<T>(name, strlen(name));
+    }
+
+    using CompilerPriorityQueue UTILS_NOAPIGEN = backend::CompilerPriorityQueue;
+
+    /**
+     * Asynchronously ensures that a subset of this MaterialInstance's variants are compiled.
+     *
+     * This function behaves identically to Material::compile(), but takes into account the
+     * specific constants overridden by setConstant().
+     *
+     * @param priority      Which priority queue to use, LOW or HIGH.
+     * @param variants      Variants to include to the compile command.
+     * @param handler       Handler to dispatch the callback or nullptr for the default handler
+     * @param callback      callback called on the main thread when the compilation is done on
+     *                      by backend.
+     *
+     * @see Material::compile
+     * @see setConstant
+     */
+    void compile(CompilerPriorityQueue priority,
+            UserVariantFilterMask variants,
+            backend::CallbackHandler* UTILS_NULLABLE handler = nullptr,
+            utils::Invocable<void(MaterialInstance* UTILS_NONNULL)>&& callback = {}) noexcept;
+
+    UTILS_NOAPIGEN
+    inline void compile(CompilerPriorityQueue priority,
+            UserVariantFilterBit variants,
+            backend::CallbackHandler* UTILS_NULLABLE handler = nullptr,
+            utils::Invocable<void(MaterialInstance* UTILS_NONNULL)>&& callback = {}) noexcept {
+        compile(priority, UserVariantFilterMask(variants), handler,
+                std::forward<utils::Invocable<void(MaterialInstance* UTILS_NONNULL)>>(callback));
+    }
+
+    UTILS_NOAPIGEN
+    inline void compile(CompilerPriorityQueue priority,
+            backend::CallbackHandler* UTILS_NULLABLE handler = nullptr,
+            utils::Invocable<void(MaterialInstance* UTILS_NONNULL)>&& callback = {}) noexcept {
+        compile(priority, UserVariantFilterBit::ALL, handler,
+                std::forward<utils::Invocable<void(MaterialInstance* UTILS_NONNULL)>>(callback));
     }
 
     /**

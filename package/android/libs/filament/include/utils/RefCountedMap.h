@@ -16,9 +16,10 @@
 #ifndef TNT_UTILS_REFCOUNTEDMAP_H
 #define TNT_UTILS_REFCOUNTEDMAP_H
 
-#include <utils/Panic.h>
 #include <utils/compiler.h>
 #include <utils/debug.h>
+#include <utils/LruCache.h>
+#include <utils/Panic.h>
 
 #include <tsl/robin_map.h>
 
@@ -62,6 +63,11 @@ struct DefaultValue {
  *
  * Don't use RAII here, both because we sometimes want to deliberately leak memory, and because
  * we're managing GL resources that require more managed destruction.
+ *
+ * Key lifetime: a Key is allowed to hold pointers or references into its associated value. This map
+ * therefore guarantees that the key it stores for an entry is always the key that was supplied
+ * together with that entry's value, and never a lookup key belonging to a different value. Callers
+ * relying on this must still make sure the pointee outlives the entry.
  */
 template<typename Key, typename T, typename Hash = std::hash<Key>,
          typename NullValue = refcountedmap::DefaultValue<T>>
@@ -74,8 +80,6 @@ class RefCountedMap {
         uint32_t referenceCount;
         T value;
     };
-
-    using Map = tsl::robin_map<Key, Entry, Hash>;
 
     static constexpr TValue& deref(T& a) {
         if constexpr (refcountedmap::IsPointer<T>) {
@@ -99,6 +103,9 @@ class RefCountedMap {
             "Attempted to get missing value";
 
 public:
+    explicit RefCountedMap(const char* UTILS_NONNULL name = "RefCountedMap", size_t lruCapacity = 0)
+            : mLruCache(name, lruCapacity) {}
+
     /** Acquire and return a value by key, initializing it with F if it doesn't exist.
      *
      * If F returns NullValue{}(), this indicates a failure to create the object. If T is a value
@@ -111,12 +118,16 @@ public:
             it.value().referenceCount++;
             return &deref(it.value().value);
         }
+
+        if (auto lruItem = mLruCache.pop(key, hash)) {
+            return &insert(std::move(lruItem->key), std::move(lruItem->value));
+        }
+
         T r = factory();
         if (r == NullValue{}()) {
             return nullptr;
         }
-        // TODO: how to use above computed hash here?
-        return &deref(mMap.insert({ key, Entry{ 1, std::move(r) } }).first.value().value);
+        return &insert(key, std::move(r));
     }
 
     template<typename F>
@@ -138,6 +149,11 @@ public:
             it.value().referenceCount++;
             return &deref(it.value().value);
         }
+
+        if (auto lruItem = mLruCache.pop(key, hash)) {
+            return &insert(std::move(lruItem->key), std::move(lruItem->value));
+        }
+
         // TODO: how to use above computed hash here?
         mMap.insert({ key, Entry{ 1, NullValue{}() } });
         return nullptr;
@@ -156,8 +172,14 @@ public:
         auto it = mMap.find(key, hash);
         FILAMENT_CHECK_PRECONDITION(it != mMap.end()) << MISSING_ENTRY_ERROR_STRING;
         if (--it.value().referenceCount == 0) {
-            if (it.value().value != NullValue{}()){
-                releaser(deref(it.value().value));
+            if (it.value().value != NullValue{}()) {
+                if (mLruCache.capacity() > 0) {
+                    mLruCache.put(it.key(), std::move(it.value().value), hash, [&releaser](T&& v) {
+                        releaser(deref(v));
+                    });
+                } else {
+                    releaser(deref(it.value().value));
+                }
             }
             // TODO: change to erase_fast
             mMap.erase(it);
@@ -177,6 +199,9 @@ public:
         auto it = mMap.find(key, hash);
         FILAMENT_CHECK_PRECONDITION(it != mMap.end()) << MISSING_ENTRY_ERROR_STRING;
         if (--it.value().referenceCount == 0) {
+            if (mLruCache.capacity() > 0) {
+                mLruCache.put(it.key(), std::move(it.value().value), hash, [](T&&){});
+            }
             // TODO: change to erase_fast
             mMap.erase(it);
         }
@@ -217,7 +242,7 @@ public:
      * Panics if no entry found in map.
      */
     TValue& get(KeyRef key, size_t hash) {
-        auto it = mMap.find(key);
+        auto it = mMap.find(key, hash);
         FILAMENT_CHECK_PRECONDITION(it != mMap.end()) << MISSING_ENTRY_ERROR_STRING;
         FILAMENT_CHECK_PRECONDITION(it.value().value != NullValue{}())
                 << MISSING_VALUE_ERROR_STRING;
@@ -236,13 +261,34 @@ public:
 
     inline TValue const& get(KeyRef key) const noexcept { return get(key, Hash{}(key)); }
 
+    /** Clear the LRU cache, calling releaser on each item evicted. */
+    template<typename F>
+    void clearLruCache(F releaser) {
+        mLruCache.clear([&releaser](T&& v) {
+            releaser(deref(v));
+        });
+    }
+
+    /** Clear the LRU cache without calling any releasers. */
+    void clearLruCache() {
+        mLruCache.clear();
+    }
+
     /** Returns true if the map is empty. */
     inline bool empty() const noexcept { return mMap.empty(); }
 
 private:
-    Map mMap;
+    tsl::robin_map<Key, Entry, Hash> mMap;
+    utils::LruCache<Key, T, Hash> mLruCache;
+
+    template<typename K>
+    TValue& insert(K&& key, T value) {
+        // TODO: how to use computed hash here?
+        auto it = mMap.insert({ std::forward<K>(key), Entry{ 1, std::move(value) } });
+        return deref(it.first.value().value);
+    }
 };
 
-}
+} // utils
 
 #endif  // TNT_UTILS_REFCOUNTEDMAP_H

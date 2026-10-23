@@ -18,6 +18,7 @@
 #define TNT_FILAMENT_ENGINE_H
 
 
+#include <filament/ColorGrading.h>
 #include <filament/FilamentAPI.h>
 
 #include <backend/DriverEnums.h>
@@ -26,13 +27,15 @@
 #include <utils/compiler.h>
 #include <utils/Invocable.h>
 #include <utils/Slice.h>
+#include <utils/tribool.h>
 
 #include <functional>
 #include <initializer_list>
 #include <optional>
+#include <utility>
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 
 namespace utils {
@@ -52,6 +55,7 @@ class Camera;
 class ColorGrading;
 class DebugRegistry;
 class Fence;
+class FramePacer;
 class IndexBuffer;
 class SkinningBuffer;
 class IndirectLight;
@@ -183,19 +187,29 @@ class TransformManager;
  *
  * @see Renderer
  */
-class UTILS_PUBLIC Engine {
+class UTILS_PUBLIC UTILS_APIGEN_USED_BY_NATIVE Engine {
     struct BuilderDetails;
 public:
-    using Platform = backend::Platform;
+    using Platform UTILS_NOAPIGEN = backend::Platform;
     using Backend = backend::Backend;
-    using DriverConfig = backend::Platform::DriverConfig;
+    using DriverConfig UTILS_NOAPIGEN = backend::Platform::DriverConfig;
     using FeatureLevel = backend::FeatureLevel;
     using StereoscopicType = backend::StereoscopicType;
-    using Driver = backend::Driver;
+    using Driver UTILS_NOAPIGEN = backend::Driver;
     using GpuContextPriority = backend::Platform::GpuContextPriority;
     using AsynchronousMode = backend::AsynchronousMode;
-    using AsyncCompletionCallback = std::function<void(void* UTILS_NULLABLE)>;
-    using AsyncCallId = backend::AsyncCallId;
+    using AsyncCallStatus UTILS_NOAPIGEN = backend::AsyncCallStatus;
+    using AsyncCompletionCallback UTILS_NOAPIGEN = std::function<void(void* UTILS_NULLABLE, AsyncCallStatus)>;
+    using AsyncCallId UTILS_NOAPIGEN = backend::AsyncCallId;
+
+    /**
+     * Three-state feature state.
+     */
+    enum class FeatureState : uint8_t {
+        DISABLED = 0,
+        ENABLED = 1,
+        INDETERMINATE = 2
+    };
 
     /**
      * Config is used to define the memory footprint used by the engine, such as the
@@ -293,17 +307,26 @@ public:
         uint32_t perFrameCommandsSizeMB = FILAMENT_PER_FRAME_COMMANDS_SIZE_IN_MB;
 
         /**
+         * Special value for jobSystemThreadCount, forcing the JobSystem to be single-threaded.
+         */
+        static constexpr uint32_t SINGLE_THREADED = std::numeric_limits<uint32_t>::max();
+
+        /**
          * Number of threads to use in Engine's JobSystem.
          *
-         * Engine uses a utils::JobSystem to carry out paralleization of Engine workloads. This
+         * Engine uses a utils::JobSystem to carry out parallelization of Engine workloads. This
          * value sets the number of threads allocated for JobSystem. Configuring this value can be
          * helpful in CPU-constrained environments where too many threads can cause contention of
          * CPU and reduce performance.
          *
          * The default value is 0, which implies that the Engine will use a heuristic to determine
          * the number of threads to use.
+         *
+         * The special value SINGLE_THREADED forces the JobSystem to be single-threaded and not use
+         * a thread pool (jobs are executed on the calling thread).
          */
         uint32_t jobSystemThreadCount = 0;
+
 
         /**
          * When uploading vertex or index data, the Filament Metal backend copies data
@@ -441,6 +464,36 @@ public:
          * invoking asynchronous methods.
          */
         AsynchronousMode asynchronousMode = AsynchronousMode::NONE;
+
+        /**
+         * Capacity of the LRU cache for material definitions.
+         *
+         * A value of 0 indicates that definitions will be destroyed immediately when they are no
+         * longer referenced by any material instances or scenes. A value greater than 0 defines
+         * the maximum number of unreferenced definitions to keep alive to avoid re-compilation.
+         */
+        uint32_t materialCacheCapacity = 0;
+
+        /**
+         * Capacity of the LRU cache for program specializations.
+         *
+         * Similar to materialCacheCapacity, but applies to the underlying shader programs generated
+         * for materials. A value of 0 means immediate destruction of unreferenced programs. A
+         * positive value caches up to that number of programs.
+         */
+        uint32_t programCacheCapacity = 0;
+
+        /**
+         * Whether a scene can contain more than one directional light.
+         *
+         * By default, and historically, only the dominant directional light (the one with the
+         * highest intensity) of a scene is evaluated. When this is enabled, up to four
+         * additional directional lights contribute lighting; they don't cast shadows and don't
+         * draw a sun's disk. Scenes with a single directional light are unaffected either way.
+         *
+         * @see LightManager
+         */
+        bool enableMultipleDirectionalLights = false;
     };
 
 
@@ -452,7 +505,7 @@ public:
      * Feature flags are intended to have a short life-time and are regularly removed as features
      * mature.
      */
-    struct FeatureFlag {
+    struct UTILS_NOAPIGEN FeatureFlag {
         char const* UTILS_NONNULL name;         //!< name of the feature flag
         char const* UTILS_NONNULL description;  //!< short description
         bool const* UTILS_NONNULL value;        //!< pointer to the value of the flag
@@ -462,6 +515,7 @@ public:
     /**
      * Returns the list of available feature flags
      */
+    UTILS_NOAPIGEN
     utils::Slice<const FeatureFlag> getFeatureFlags() const noexcept;
 
 #if UTILS_HAS_THREADING
@@ -504,6 +558,7 @@ public:
          *
          * @return A reference to this Builder for chaining calls.
          */
+        UTILS_NOAPIGEN
         Builder& platform(Platform* UTILS_NULLABLE platform) noexcept;
 
         /**
@@ -549,7 +604,15 @@ public:
          * @param list list of feature names to enable.
          * @return A reference to this Builder for chaining calls.
          */
+        UTILS_NOAPIGEN
         Builder& features(std::initializer_list<char const *> list) noexcept;
+
+        /**
+         * Sets the builder used to create the default ColorGrading object.
+         * @param colorGrading Builder used to create the default color grading.
+         * @return A reference to this Builder for chaining calls.
+         */
+        Builder& colorGrading(ColorGrading::Builder const& colorGrading) noexcept;
 
 #if UTILS_HAS_THREADING
         /**
@@ -558,6 +621,7 @@ public:
          * @param callback  Callback called once the engine is initialized and it is safe to
          *                  call Engine::getEngine().
          */
+        UTILS_NOAPIGEN
         void build(utils::Invocable<void(void* UTILS_NONNULL token)>&& callback) const;
 #endif
 
@@ -580,6 +644,7 @@ public:
      * Backward compatibility helper to create an Engine.
      * @see Builder
      */
+    UTILS_NOAPIGEN
     static inline Engine* UTILS_NULLABLE create(Backend backend = Backend::DEFAULT,
             Platform* UTILS_NULLABLE platform = nullptr,
             void* UTILS_NULLABLE sharedContext = nullptr,
@@ -598,6 +663,7 @@ public:
      * Backward compatibility helper to create an Engine asynchronously.
      * @see Builder
      */
+    UTILS_NOAPIGEN
     static inline void createAsync(CreateCallback callback,
             void* UTILS_NULLABLE user,
             Backend backend = Backend::DEFAULT,
@@ -626,6 +692,7 @@ public:
      * allocate the command buffer. If exceptions are disabled, this condition if fatal and
      * this function will abort.
      */
+    UTILS_NOAPIGEN
     static Engine* UTILS_NULLABLE getEngine(void* UTILS_NONNULL token);
 #endif
 
@@ -633,6 +700,7 @@ public:
      * @return the Driver instance used by this Engine.
      * @see OpenGLPlatform
      */
+    UTILS_NOAPIGEN
     backend::Driver const* UTILS_NONNULL getDriver() const noexcept;
 
     /**
@@ -661,6 +729,7 @@ public:
      * \remark
      * This method is thread-safe.
      */
+    UTILS_NOAPIGEN
     static void destroy(Engine* UTILS_NULLABLE* UTILS_NULLABLE engine);
 
     /**
@@ -688,6 +757,7 @@ public:
      * \remark
      * This method is thread-safe.
      */
+    UTILS_NOAPIGEN
     static void destroy(Engine* UTILS_NULLABLE engine);
 
     /**
@@ -762,6 +832,17 @@ public:
      * @return true if the engine supports asynchronous operation.
      */
     bool isAsynchronousModeEnabled() const noexcept;
+
+    /**
+     * Returns whether the engine has encountered an unrecoverable failure.
+     *
+     * If this returns true, the engine is in an unrecoverable state and further calls to
+     * rendering methods will fail or be ignored. Apps can use this to check for fatal
+     * errors instead of relying on exceptions.
+     *
+     * @return true if an unrecoverable failure has occurred, false otherwise.
+     */
+    bool hasUnrecoverableFailure() const noexcept;
 
     /**
      * Retrieves the configuration settings of this Engine.
@@ -926,11 +1007,13 @@ public:
      *
      * @return A pointer to the newly created Sync.
      */
+    UTILS_NOAPIGEN
     Sync* UTILS_NONNULL createSync() noexcept;
 
     bool destroy(const BufferObject* UTILS_NULLABLE p);         //!< Destroys a BufferObject object.
     bool destroy(const VertexBuffer* UTILS_NULLABLE p);         //!< Destroys an VertexBuffer object.
     bool destroy(const Fence* UTILS_NULLABLE p);                //!< Destroys a Fence object.
+    UTILS_NOAPIGEN
     bool destroy(const Sync* UTILS_NULLABLE p);                 //!< Destroys a Sync object.
     bool destroy(const IndexBuffer* UTILS_NULLABLE p);          //!< Destroys an IndexBuffer object.
     bool destroy(const SkinningBuffer* UTILS_NULLABLE p);       //!< Destroys a SkinningBuffer object.
@@ -948,6 +1031,7 @@ public:
     bool destroy(const Material* UTILS_NULLABLE p);
     bool destroy(const MaterialInstance* UTILS_NULLABLE p); //!< Destroys a MaterialInstance object.
     bool destroy(const Renderer* UTILS_NULLABLE p);         //!< Destroys a Renderer object.
+    bool destroy(const FramePacer* UTILS_NULLABLE p);       //!< Destroys a FramePacer object.
     bool destroy(const Scene* UTILS_NULLABLE p);            //!< Destroys a Scene object.
     bool destroy(const Skybox* UTILS_NULLABLE p);           //!< Destroys a SkyBox object.
     bool destroy(const ColorGrading* UTILS_NULLABLE p);     //!< Destroys a ColorGrading object.
@@ -960,51 +1044,72 @@ public:
     void destroy(utils::Entity e);    //!< Destroys all filament-known components from this entity
 
     /** Tells whether a BufferObject object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const BufferObject* UTILS_NULLABLE p) const;
     /** Tells whether an VertexBuffer object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const VertexBuffer* UTILS_NULLABLE p) const;
     /** Tells whether a Fence object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const Fence* UTILS_NULLABLE p) const;
     /** Tells whether a Sync object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const Sync* UTILS_NULLABLE p) const;
     /** Tells whether an IndexBuffer object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const IndexBuffer* UTILS_NULLABLE p) const;
     /** Tells whether a SkinningBuffer object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const SkinningBuffer* UTILS_NULLABLE p) const;
     /** Tells whether a MorphTargetBuffer object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const MorphTargetBuffer* UTILS_NULLABLE p) const;
     /** Tells whether an IndirectLight object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const IndirectLight* UTILS_NULLABLE p) const;
     /** Tells whether an Material object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const Material* UTILS_NULLABLE p) const;
     /** Tells whether an MaterialInstance object is valid. Use this if you already know
      * which Material this MaterialInstance belongs to. DO NOT USE getMaterial(), this would
      * defeat the purpose of validating the MaterialInstance.
      */
+    UTILS_NOAPIGEN
     bool isValid(const Material* UTILS_NONNULL m, const MaterialInstance* UTILS_NULLABLE p) const;
     /** Tells whether an MaterialInstance object is valid. Use this if the Material the
      * MaterialInstance belongs to is not known. This method can be expensive.
      */
+    UTILS_NOAPIGEN
     bool isValidExpensive(const MaterialInstance* UTILS_NULLABLE p) const;
     /** Tells whether a Renderer object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const Renderer* UTILS_NULLABLE p) const;
     /** Tells whether a Scene object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const Scene* UTILS_NULLABLE p) const;
     /** Tells whether a SkyBox object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const Skybox* UTILS_NULLABLE p) const;
     /** Tells whether a ColorGrading object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const ColorGrading* UTILS_NULLABLE p) const;
     /** Tells whether a SwapChain object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const SwapChain* UTILS_NULLABLE p) const;
     /** Tells whether a Stream object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const Stream* UTILS_NULLABLE p) const;
     /** Tells whether a Texture object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const Texture* UTILS_NULLABLE p) const;
     /** Tells whether a RenderTarget object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const RenderTarget* UTILS_NULLABLE p) const;
     /** Tells whether a View object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const View* UTILS_NULLABLE p) const;
     /** Tells whether an InstanceBuffer object is valid */
+    UTILS_NOAPIGEN
     bool isValid(const InstanceBuffer* UTILS_NULLABLE p) const;
 
     /**
@@ -1037,10 +1142,10 @@ public:
      *
      * Beware of overusing this method. It shares the execution queue with other asynchronous tasks
      * like texture updates, so flooding it can delay those critical engine tasks. The recommended
-     * practice is to use this method for resource preparation, such as asset loading(images/meshes).
-     * This facilitates an efficient chaining pattern, where subsequent asynchronous operations
-     * (e.g., creating textures/vertex buffers) can be initiated directly within the completion
-     * callback.
+     * practice is to use this method for resource preparation, such as asset
+     * loading(images/meshes). This facilitates an efficient chaining pattern, where subsequent
+     * asynchronous operations (e.g., creating textures/vertex buffers) can be initiated directly
+     * within the completion callback.
      *
      * Users can call the `Engine::cancelAsyncCall()` method with the returned ID to cancel the
      * asynchronous call.
@@ -1051,10 +1156,13 @@ public:
      * @param command The custom command to be executed.
      * @param handler The handler from which `onComplete` is invoked. If null, it's called from the
      * main thread.
-     * @param onComplete The callback function that runs once the command has finished.
+     * @param onComplete The callback function that runs once the command has finished. Its
+     *                   `AsyncCallStatus` argument reports the outcome: `COMPLETED` if the command
+     *                   ran, `CANCELED` if it never ran.
      * @param user    The custom data that will be passed as an argument to the `onComplete`.
      * @return A unique identifier for the asynchronous call.
      */
+    UTILS_NOAPIGEN
     AsyncCallId runCommandAsync(utils::Invocable<void()>&& command,
             backend::CallbackHandler* UTILS_NULLABLE handler, AsyncCompletionCallback onComplete,
             void* UTILS_NULLABLE user = nullptr);
@@ -1063,6 +1171,11 @@ public:
      * Cancel the pending asynchronous call pointed to by `id`, which is retrieved whenever you
      * invoke a non-blocking version of method on an object, such as `Texture::setImageAsync` or
      * `BufferObject::setBufferAsync`.
+     *
+     * Canceling does not suppress the completion callback of the call. The callback always runs
+     * exactly once, on the handler the call was given: with `backend::AsyncCallStatus::CANCELED` if
+     * the operation never ran, and with `COMPLETED` if it did. So a caller counting outstanding
+     * operations always balances out, and whatever the callback owns is still released.
      *
      * @param id The unique identifier for the asynchronous call to be canceled.
      * @return Returns true upon successful cancellation. It returns false if the asynchronous
@@ -1080,6 +1193,8 @@ public:
      * in cases where a guarantee about the <code>SwapChain</code> destruction is needed in a
      * timely fashion, such as when responding to Android's
      * <code>android.view.SurfaceHolder.Callback.surfaceDestroyed</code></p>
+     *
+     * @note If the backend thread has encountered an unrecoverable error, this function becomes a no-op.
      */
     void flushAndWait();
 
@@ -1099,6 +1214,8 @@ public:
      * @param timeout A timeout in nanoseconds
      * @return true if successful, false if flushAndWait timed out, in which case it wasn't successful and commands
      * might still be executing on both the CPU and GPU sides.
+     *
+     * @note If the backend thread has encountered an unrecoverable error, this function becomes a no-op and returns false.
      */
     bool flushAndWait(uint64_t timeout);
 
@@ -1108,7 +1225,9 @@ public:
      *
      * <p>This is typically used after creating a lot of objects to start draining the command
      * queue which has a limited size.</p>
-      */
+     *
+     * @note If the backend thread has encountered an unrecoverable error, this function becomes a no-op.
+     */
     void flush();
 
     /**
@@ -1143,6 +1262,7 @@ public:
      * This is useful because otherwise callbacks will be executed by filament at a later time,
      * which may increase latency in certain applications.</p>
      */
+    UTILS_NOAPIGEN
     void pumpMessageQueues();
 
     /**
@@ -1160,6 +1280,7 @@ public:
      *
      * @return A pointer to the default Material instance (a singleton).
      */
+    UTILS_NOAPIGEN
     Material const* UTILS_NONNULL getDefaultMaterial() const noexcept;
 
     /**
@@ -1191,6 +1312,7 @@ public:
      * @return A pointer to the Platform object that was provided to Engine::create, or the
      * Filament-created one.
      */
+    UTILS_NOAPIGEN
     Platform* UTILS_NULLABLE getPlatform() const noexcept;
 
     /**
@@ -1204,6 +1326,7 @@ public:
      * @note there is no need to destroy this buffer, it will be freed automatically when
      *       the current command buffer is executed.
      */
+    UTILS_NOAPIGEN
     void* UTILS_NULLABLE streamAlloc(size_t size, size_t alignment = alignof(double)) noexcept;
 
     /**
@@ -1211,6 +1334,7 @@ public:
       *
       * This should be called every time the windowing system needs to paint (e.g. at 60 Hz).
       */
+    UTILS_NOAPIGEN
     void execute();
 
     /**
@@ -1218,6 +1342,7 @@ public:
       *
       * @return JobSystem used by filament
       */
+    UTILS_NOAPIGEN
     utils::JobSystem& getJobSystem() noexcept;
 
 #if defined(__EMSCRIPTEN__)
@@ -1251,6 +1376,7 @@ public:
     static uint64_t getSteadyClockTimeNano() noexcept;
 
 
+    UTILS_NOAPIGEN
     DebugRegistry& getDebugRegistry() noexcept;
 
     /**
@@ -1282,7 +1408,88 @@ public:
      * @param name name of the feature flag
      * @return a pointer to the feature flag value, or nullptr if the feature flag is constant or doesn't exist
      */
+    UTILS_NOAPIGEN
     bool* UTILS_NULLABLE getFeatureFlagPtr(char const* UTILS_NONNULL name) const noexcept;
+
+
+    /**
+     * Asynchronously ensures that the variants of the specified Material needed to render it
+     * in the provided View are compiled. This takes into account the view's features
+     * (e.g. dynamic lighting, fog, stereo, shadowing), alongside the specified shadow receiver
+     * and skinning configurations.
+     *
+     * After issuing several Engine::compile() calls in a row, it is recommended to call
+     * Engine::flush() such that the backend can start the compilation work as soon as possible.
+     * The provided callback is guaranteed to be called on the main thread after all computed
+     * variants of the material are compiled. This can take hundreds of milliseconds.
+     *
+     * If all the needed variants are already compiled, the callback will be scheduled as
+     * soon as possible, but this might take a few dozen milliseconds, corresponding to how
+     * many previous frames are enqueued in the backend. 
+     *
+     * If the same variant is scheduled for compilation multiple times, the first scheduling
+     * takes precedence; later scheduling are ignored.
+     *
+     * The callback is guaranteed to be called. If the engine is destroyed while some material
+     * variants are still compiling or in the queue, these will be discarded and the corresponding
+     * callback will be called. In that case however the Material pointer passed to the callback
+     * is guaranteed to be invalid (either because it's been destroyed by the user already, or,
+     * because it's been cleaned-up by the Engine).
+     *
+     * @param priority       Which priority queue to use, LOW or HIGH.
+     * @param material       The Material to compile.
+     * @param view           The View in which the material will be rendered.
+     * @param shadowReceiver Indicates whether to compile the shadow-receiving variants.
+     *                       Pass \p utils::tribool::indeterminate to compile both permutations.
+     * @param skinning       Indicates whether to compile the skinning variants.
+     *                       Pass \p utils::tribool::indeterminate to compile both permutations.
+     * @param handler        Handler to dispatch the callback or nullptr for the default handler.
+     * @param callback       Callback called on the main thread when the compilation is done
+     *                       by the backend.
+     * 
+     * @see Material::compile
+     */
+    UTILS_NOAPIGEN
+    void compile(
+            backend::CompilerPriorityQueue priority,
+            Material const* UTILS_NONNULL material,
+            View const* UTILS_NONNULL view,
+            utils::tribool shadowReceiver,
+            utils::tribool skinning,
+            backend::CallbackHandler* UTILS_NULLABLE handler = nullptr,
+            utils::Invocable<void(Material* UTILS_NONNULL)>&& callback = {});
+
+    /**
+     * Asynchronously ensures that the variants of the specified Material needed to render it
+     * in the provided View are compiled.
+     *
+     * @param priority       Which priority queue to use, LOW or HIGH.
+     * @param material       The Material to compile.
+     * @param view           The View in which the material will be rendered.
+     * @param shadowReceiver Indicates whether to compile the shadow-receiving variants.
+     *                       Pass \p FeatureState::INDETERMINATE to compile both permutations.
+     * @param skinning       Indicates whether to compile the skinning variants.
+     *                       Pass \p FeatureState::INDETERMINATE to compile both permutations.
+     * @param handler        Handler to dispatch the callback or nullptr for the default handler.
+     * @param callback       Callback called on the main thread when the compilation is done
+     *                       by the backend.
+     *
+     * @see Material::compile
+     */
+    inline void compile(
+            backend::CompilerPriorityQueue priority,
+            Material const* UTILS_NONNULL material,
+            View const* UTILS_NONNULL view,
+            FeatureState shadowReceiver,
+            FeatureState skinning,
+            backend::CallbackHandler* UTILS_NULLABLE handler = nullptr,
+            utils::Invocable<void(Material* UTILS_NONNULL)>&& callback = {}) {
+        compile(priority, material, view,
+                utils::tribool(utils::tribool::Value(shadowReceiver)),
+                utils::tribool(utils::tribool::Value(skinning)),
+                handler,
+                std::move(callback));
+    }
 
 protected:
     //! \privatesection

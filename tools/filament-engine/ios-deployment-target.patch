@@ -1,0 +1,18 @@
+diff --git a/third_party/clang/iOS.cmake b/third_party/clang/iOS.cmake
+index 525f163c..a10cc17e 100644
+--- a/third_party/clang/iOS.cmake
++++ b/third_party/clang/iOS.cmake
+@@ -15,12 +15,10 @@ set(DIST_ARCH ${IOS_ARCH})
+ 
+ add_definitions(-DFILAMENT_IOS)
+ 
+-set(IOS_MIN_TARGET "11.0")
++set(IOS_MIN_TARGET "15.1")
+ 
+ if(PLATFORM_NAME STREQUAL "iphonesimulator")
+     add_definitions(-DFILAMENT_IOS_SIMULATOR)
+-    # The simulator only supports iOS >= 13.0
+-    set(IOS_MIN_TARGET "13.0")
+     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -target ${IOS_ARCH}-apple-ios${IOS_MIN_TARGET}-simulator")
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -target ${IOS_ARCH}-apple-ios${IOS_MIN_TARGET}-simulator")
+ endif()

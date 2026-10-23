@@ -1,6 +1,6 @@
 {
   "name": "react-native-filament",
-  "version": "1.11.0-tonic.4",
+  "version": "1.11.0-tonic.5",
   "description": "A real-time physically based 3D rendering engine for React Native",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -36,7 +36,7 @@
     "build": "bob build",
     "prepare": "git submodule update --init --recursive && bun patch-filament && bob build",
     "update-submodule": "git submodule update --remote --merge",
-    "patch-filament": "cd ../filament ; git apply ../package/filament_animator_feat.patch ; git apply ../package/filament_ios_simulator.patch ; git apply ../package/filament_depth_clip_mode.patch ; cd ../package",
+    "patch-filament": "cd ../filament ; git apply ../package/filament_animator_feat.patch ; cd ../package",
     "build-filament": "bun patch-filament && scripts/build-filament.sh",
     "build-filament:release": "bun build-filament release",
     "build-filament:debug": "bun build-filament debug",

@@ -26,12 +26,13 @@
 #include <backend/Platform.h>
 
 #include <utils/compiler.h>
+#include <utils/ImmutableCString.h>
 #include <utils/Invocable.h>
 #include <utils/StaticString.h>
 
+#include <functional>
 #include <utility>
 
-#include <functional>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -76,9 +77,6 @@ class UTILS_PUBLIC Texture : public FilamentAPI {
 public:
     static constexpr size_t BASE_LEVEL = 0;
 
-    //! Face offsets for all faces of a cubemap
-    struct FaceOffsets;
-
     using PixelBufferDescriptor = backend::PixelBufferDescriptor;    //!< Geometry of a pixel buffer
     using Sampler = backend::SamplerType;                            //!< Type of sampler
     using InternalFormat = backend::TextureFormat;                   //!< Internal texel format
@@ -86,12 +84,13 @@ public:
     using Format = backend::PixelDataFormat;                         //!< Pixel color format
     using Type = backend::PixelDataType;                             //!< Pixel data format
     using CompressedType = backend::CompressedPixelDataType;         //!< Compressed pixel data format
-    using Usage = backend::TextureUsage;                             //!< Usage affects texel layout
+    using Usage = backend::TextureUsage;                            //!< Usage affects texel layout
     using Swizzle = backend::TextureSwizzle;                         //!< Texture swizzle
     using ExternalImageHandle = backend::Platform::ExternalImageHandle;
     using ExternalImageHandleRef = backend::Platform::ExternalImageHandleRef;
-    using AsyncCompletionCallback =
-            std::function<void(Texture* UTILS_NONNULL, void* UTILS_NULLABLE)>;
+    using AsyncCallStatus = backend::AsyncCallStatus;
+    using AsyncCompletionCallback = std::function<void(Texture* UTILS_NONNULL,
+            void* UTILS_NULLABLE, AsyncCallStatus)>;
     using AsyncCallId = backend::AsyncCallId;
 
     /** @return Whether a backend supports a particular format. */
@@ -227,6 +226,8 @@ public:
          */
         Builder& swizzle(Swizzle r, Swizzle g, Swizzle b, Swizzle a) noexcept;
 
+        using BuilderNameMixin<Builder>::name;
+
         /**
          * Associate an optional name with this Texture for debugging purposes.
          *
@@ -242,6 +243,7 @@ public:
          * @deprecated Use name(utils::StaticString const&) instead.
          */
         UTILS_DEPRECATED
+        UTILS_NOAPIGEN
         Builder& name(const char* UTILS_NONNULL name, size_t len) noexcept;
 
         /**
@@ -252,7 +254,19 @@ public:
          * @param name A string literal to identify this Texture
          * @return This Builder, for chaining calls.
          */
+        UTILS_NOAPIGEN
         Builder& name(utils::StaticString const& name) noexcept;
+
+        /**
+         * Associate an optional name with this Texture for debugging purposes.
+         *
+         * @param name A string to identify this Texture
+         * @return This Builder, for chaining calls.
+         *
+         * @note This method should be avoided in C++ in favor of the `StaticString` overload.
+         * It is provided primarily for bindings to other languages.
+         */
+        Builder& name(utils::ImmutableCString const& name) noexcept;
 
         /**
          * Creates an external texture. The content must be set using setExternalImage().
@@ -275,7 +289,9 @@ public:
          * are safe because they are queued and executed in sequence. However, invoking regular
          * methods on the same resource before it's fully ready is unsafe and may cause undefined
          * behavior. Users can call the `isCreationComplete()` method for the resource to confirm
-         * when the resource is ready for regular API calls.
+         * when the resource is ready for regular API calls. It returns false if the asynchronous
+         * creation was canceled, in which case the resource was never populated and must not be
+         * used.
          *
          * To use this method, the engine must be configured for asynchronous operation. Otherwise,
          * calling async method will cause the program to terminate.
@@ -285,9 +301,12 @@ public:
          *
          * @param handler Handler to dispatch the callback or nullptr for the default handler
          * @param callback A function to be called upon the completion of an asynchronous creation.
+         *                 Its `AsyncCallStatus` argument reports whether the operation ran
+         *                 (`COMPLETED`) or never ran (`CANCELED`).
          * @param user The custom data that will be passed as the second argument to the `callback`.
          * @return This Builder, for chaining calls.
          */
+        UTILS_NOAPIGEN
         Builder& async(backend::CallbackHandler* UTILS_NULLABLE handler,
                 AsyncCompletionCallback callback = nullptr,
                 void* UTILS_NULLABLE user = nullptr) noexcept;
@@ -334,6 +353,7 @@ public:
          *
          * @return This Builder, for chaining calls.
          */
+        UTILS_APIGEN_ALTERNATE_NAME(importTexture)
         Builder& import(intptr_t id) noexcept;
 
     private:
@@ -399,7 +419,8 @@ public:
      * @param width     Width of the sub-region to update.
      * @param height    Height of the sub-region to update.
      * @param depth     Depth of the sub-region to update.
-     * @param buffer    Client-side buffer containing the image to set.
+     * @param buffer    Client-side buffer containing the image to set. The driver will invoke
+     *                  the callback associated with this buffer when the data has been consumed.
      *
      * @attention \p engine must be the instance passed to Builder::build()
      * @attention \p level must be less than getLevels().
@@ -417,10 +438,7 @@ public:
     /**
      * inline helper to update a 2D texture
      *
-     * @see setImage(Engine& engine, size_t level,
-     *              uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
-     *              uint32_t width, uint32_t height, uint32_t depth,
-     *              PixelBufferDescriptor&& buffer)
+     * @see setImage
      */
     void setImage(Engine& engine, size_t level, PixelBufferDescriptor&& buffer) const {
         setImage(engine, level, 0, 0, 0,
@@ -430,43 +448,13 @@ public:
     /**
      * inline helper to update a 2D texture
      *
-     * @see setImage(Engine& engine, size_t level,
-     *              uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
-     *              uint32_t width, uint32_t height, uint32_t depth,
-     *              PixelBufferDescriptor&& buffer)
+     * @see setImage
      */
     void setImage(Engine& engine, size_t level,
             uint32_t xoffset, uint32_t yoffset, uint32_t width, uint32_t height,
             PixelBufferDescriptor&& buffer) const {
         setImage(engine, level, xoffset, yoffset, 0, width, height, 1, std::move(buffer));
     }
-
-    /**
-     * Specify all six images of a cube map level.
-     *
-     * This method follows exactly the OpenGL conventions.
-     *
-     * @param engine        Engine this texture is associated to.
-     * @param level         Level to set the image for.
-     * @param buffer        Client-side buffer containing the images to set.
-     * @param faceOffsets   Offsets in bytes into \p buffer for all six images. The offsets
-     *                      are specified in the following order: +x, -x, +y, -y, +z, -z
-     *
-     * @attention \p engine must be the instance passed to Builder::build()
-     * @attention \p level must be less than getLevels().
-     * @attention \p buffer's Texture::Format must match that of getFormat().
-     * @attention This Texture instance must use Sampler::SAMPLER_CUBEMAP or it has no effect
-     *
-     * @see Texture::CubemapFace, Builder::sampler()
-     *
-     * @deprecated Instead, use setImage(Engine& engine, size_t level,
-     *              uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
-     *              uint32_t width, uint32_t height, uint32_t depth,
-     *              PixelBufferDescriptor&& buffer)
-     */
-    UTILS_DEPRECATED
-    void setImage(Engine& engine, size_t level,
-            PixelBufferDescriptor&& buffer, const FaceOffsets& faceOffsets) const;
 
     /**
      * An asynchronous version of `setImage()`.
@@ -490,6 +478,8 @@ public:
      * @param buffer    Client-side buffer containing the image to set.
      * @param handler   Handler to dispatch the callback or nullptr for the default handler
      * @param callback  A function to be called upon the completion of an asynchronous creation.
+     *                  Its `AsyncCallStatus` argument reports whether the operation ran
+     *                  (`COMPLETED`) or never ran (`CANCELED`).
      * @param user      The custom data that will be passed as the second argument to the `callback`.
      *
      * @return          An ID that the caller can use to cancel the operation.
@@ -502,6 +492,7 @@ public:
      *
      * @see Builder::sampler()
      */
+    UTILS_NOAPIGEN
     AsyncCallId setImageAsync(Engine& engine, size_t level,
             uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
             uint32_t width, uint32_t height, uint32_t depth,
@@ -513,13 +504,9 @@ public:
     /**
      * inline helper to update a 2D texture asynchronously
      *
-     * @see setImageAsync(Engine& engine, size_t level,
-     *              uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
-     *              uint32_t width, uint32_t height, uint32_t depth,
-     *              PixelBufferDescriptor&& buffer,
-     *              backend::CallbackHandler* UTILS_NULLABLE handler,
-     *              AsyncCompletionCallback callback, void* user)
+     * @see setImageAsync
      */
+    UTILS_NOAPIGEN
     AsyncCallId setImageAsync(Engine& engine, size_t level, PixelBufferDescriptor&& buffer,
             backend::CallbackHandler* UTILS_NULLABLE handler, AsyncCompletionCallback callback,
             void* UTILS_NULLABLE user = nullptr) const {
@@ -531,13 +518,9 @@ public:
     /**
      * inline helper to update a 2D texture asynchronously
      *
-     * @see setImageAsync(Engine& engine, size_t level,
-     *              uint32_t xoffset, uint32_t yoffset, uint32_t zoffset,
-     *              uint32_t width, uint32_t height, uint32_t depth,
-     *              PixelBufferDescriptor&& buffer,
-     *              backend::CallbackHandler* UTILS_NULLABLE handler,
-     *              AsyncCompletionCallback callback, void* user)
+     * @see setImageAsync
      */
+    UTILS_NOAPIGEN
     AsyncCallId setImageAsync(Engine& engine, size_t level,
             uint32_t xoffset, uint32_t yoffset, uint32_t width, uint32_t height,
             PixelBufferDescriptor&& buffer,
@@ -566,7 +549,7 @@ public:
      * @see PlatformCocoaGL::createExternalImage
      * @see PlatformCocoaTouchGL::createExternalImage
      */
-    void setExternalImage(Engine& engine, ExternalImageHandleRef image) noexcept;
+    void setExternalImage(Engine& engine, ExternalImageHandleRef image);
 
     /**
      * Specify the external image to associate with this Texture. Typically, the external
@@ -593,7 +576,8 @@ public:
      * @deprecated Instead, use setExternalImage(Engine& engine, ExternalImageHandleRef image)
      */
     UTILS_DEPRECATED
-    void setExternalImage(Engine& engine, void* UTILS_NONNULL image) noexcept;
+    UTILS_NOAPIGEN
+    void setExternalImage(Engine& engine, void* UTILS_NONNULL image);
 
     /**
      * Specify the external image and plane to associate with this Texture. Typically, the external
@@ -624,7 +608,7 @@ public:
      *                      kCVPixelFormatType_420YpCbCr8BiPlanarFullRange images. On platforms
      *                      other than iOS, this method is a no-op.
      */
-    void setExternalImage(Engine& engine, void* UTILS_NONNULL image, size_t plane) noexcept;
+    void setExternalImage(Engine& engine, void* UTILS_NONNULL image, size_t plane);
 
     /**
      * Specify the external stream to associate with this Texture. Typically, the external
@@ -643,7 +627,7 @@ public:
      * @see Builder::sampler(), Stream
      *
      */
-    void setExternalStream(Engine& engine, Stream* UTILS_NULLABLE stream) noexcept;
+    void setExternalStream(Engine& engine, Stream* UTILS_NULLABLE stream);
 
     /**
      * Generates all the mipmap levels automatically. This requires the texture to have a
@@ -655,63 +639,22 @@ public:
      * @attention \p engine must be the instance passed to Builder::build()
      * @attention This Texture instance must NOT use SamplerType::SAMPLER_3D or it has no effect
      */
-    void generateMipmaps(Engine& engine) const noexcept;
+    void generateMipmaps(Engine& engine) const;
 
     /**
-     * This non-blocking method checks if the resource has finished creation. If the resource
-     * creation was initiated asynchronously, it will return true only after all related
-     * asynchronous tasks are complete. If the resource was created normally without using async
-     * method, it will always return true.
+     * This non-blocking method checks if the resource has finished creation *successfully*. If the
+     * resource creation was initiated asynchronously, it will return true only after all related
+     * asynchronous tasks are complete, and only if none of them was canceled. If the resource was
+     * created normally without using async method, it will always return true.
      *
-     * @return Whether the resource is created.
+     * A canceled asynchronous creation never populates the resource, so this method keeps returning
+     * false for it. The object itself remains valid and must still be destroyed as usual.
+     *
+     * @return Whether the resource is created and usable.
      *
      * @see Builder::async()
      */
     bool isCreationComplete() const noexcept;
-
-    /** @deprecated */
-    struct FaceOffsets {
-        using size_type = size_t;
-        union {
-            struct {
-                size_type px;   //!< +x face offset in bytes
-                size_type nx;   //!< -x face offset in bytes
-                size_type py;   //!< +y face offset in bytes
-                size_type ny;   //!< -y face offset in bytes
-                size_type pz;   //!< +z face offset in bytes
-                size_type nz;   //!< -z face offset in bytes
-            };
-            size_type offsets[6];
-        };
-        size_type  operator[](size_t n) const noexcept { return offsets[n]; }
-        size_type& operator[](size_t n) { return offsets[n]; }
-        FaceOffsets() noexcept = default;
-        explicit FaceOffsets(size_type faceSize) noexcept {
-            px = faceSize * 0;
-            nx = faceSize * 1;
-            py = faceSize * 2;
-            ny = faceSize * 3;
-            pz = faceSize * 4;
-            nz = faceSize * 5;
-        }
-        FaceOffsets(const FaceOffsets& rhs) noexcept {
-            px = rhs.px;
-            nx = rhs.nx;
-            py = rhs.py;
-            ny = rhs.ny;
-            pz = rhs.pz;
-            nz = rhs.nz;
-        }
-        FaceOffsets& operator=(const FaceOffsets& rhs) noexcept {
-            px = rhs.px;
-            nx = rhs.nx;
-            py = rhs.py;
-            ny = rhs.ny;
-            pz = rhs.pz;
-            nz = rhs.nz;
-            return *this;
-        }
-    };
 
 protected:
     // prevent heap allocation

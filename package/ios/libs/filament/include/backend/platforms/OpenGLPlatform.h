@@ -22,12 +22,13 @@
 #include <backend/Platform.h>
 
 #include <utils/compiler.h>
-#include <utils/Invocable.h>
 #include <utils/CString.h>
+#include <utils/Invocable.h>
+
+#include <math/mat3.h>
 
 #include <stddef.h>
 #include <stdint.h>
-#include <math/mat3.h>
 
 namespace filament::backend {
 
@@ -40,7 +41,7 @@ class Driver;
  *          upon return.
  *
  */
-class OpenGLPlatform : public Platform {
+class UTILS_SHARED_LINKING OpenGLPlatform : public Platform {
 protected:
 
     /*
@@ -52,10 +53,16 @@ protected:
 
     ~OpenGLPlatform() noexcept override;
 
+    utils::CString getDeviceInfo(DeviceInfoType infoType,
+            Driver* UTILS_NULLABLE driver) const override;
+
 public:
     struct ExternalTexture {
         unsigned int target; // GLenum target
         unsigned int id; // GLuint id
+        // Number of mip levels the driver sized this texture for. Set by the driver before
+        // setExternalImage() so the platform imports exactly the levels the driver expects.
+        uint8_t levels = 1;
     };
 
     /**
@@ -69,6 +76,12 @@ public:
      * @return The GL_RENDERER string
      */
     static utils::CString getRendererString(Driver const* UTILS_NONNULL driver);
+
+    /**
+     * Return the OpenGL version string of the specified Driver instance.
+     * @return The GL_VERSION string
+     */
+    static utils::CString getVersionString(Driver const* UTILS_NONNULL driver);
 
     /**
      * Called by the driver to destroy the OpenGL context. This should clean up any windows
@@ -244,10 +257,21 @@ public:
     virtual void commit(SwapChain* UTILS_NONNULL swapChain) noexcept = 0;
 
     /**
-     * Set the time the next committed buffer should be presented to the user at.
+     * Whether this platform can honor setPresentationTime().
+     *
+     * @return true if setPresentationTime() is implemented by this platform, false otherwise
+     *         [default].
+     * @see setPresentationTime()
+     */
+    virtual bool isPresentationTimeSupported() const noexcept;
+
+    /**
+     * Set the time the next committed buffer should be presented to the user at. This is only
+     * honored if isPresentationTimeSupported() returns true.
      *
      * @param presentationTimeInNanosecond  time in the future in nanosecond. The clock used depends
      *                                      on the concrete platform implementation.
+     * @see isPresentationTimeSupported()
      */
     virtual void setPresentationTime(int64_t presentationTimeInNanosecond) noexcept;
 
@@ -411,6 +435,17 @@ public:
     virtual bool setExternalImage(ExternalImageHandleRef externalImage,
             ExternalTexture* UTILS_NONNULL texture) noexcept;
     /** @}*/
+
+    /**
+     * Returns the number of mip levels backing an external image, or 1 if it is
+     * single-level / not applicable. Called by the driver before it constructs the
+     * backing texture, so the GLTexture can be created with the correct level count.
+     * The default implementation returns 1.
+     *
+     * @param externalImage The platform-specific external image.
+     * @return the number of mip levels in the external image (>= 1).
+     */
+    virtual uint8_t getExternalImageMipLevels(ExternalImageHandleRef externalImage) const noexcept;
 
     /**
      * The method allows platforms to convert a user-supplied external image object into a new type

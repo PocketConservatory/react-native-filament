@@ -35,6 +35,8 @@ public:
     // can be called from any thread that already has a JniEnv
     static JNIEnv* getThreadEnvironment();
 
+    static bool hasVirtualMachine() noexcept;
+
     // must be called from the backend thread
     JNIEnv* getEnvironment() noexcept {
         JNIEnv* env = mJniEnv;
@@ -52,7 +54,7 @@ private:
     JNIEnv* getEnvironmentSlow();
 
     static utils::Mutex sLock;
-    static JavaVM* sVirtualMachine;
+    static JavaVM* sVirtualMachine UTILS_GUARDED_BY(sLock);
     static JavaVM* getVirtualMachine();
 
     JNIEnv* mJniEnv = nullptr;
