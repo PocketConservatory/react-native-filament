@@ -8,8 +8,13 @@
 namespace margelo {
 
 std::shared_ptr<Listener> Choreographer::addOnFrameListener(Choreographer::OnFrameCallback onFrameCallback) {
-  std::unique_lock lock(_listenersMutex);
-  return _listeners->add(std::move(onFrameCallback));
+  // Add outside _listenersMutex: a frame holds the list's lock, and a frame callback may add a listener.
+  std::shared_ptr<ListenerManager<OnFrameCallback>> listeners;
+  {
+    std::unique_lock lock(_listenersMutex);
+    listeners = _listeners;
+  }
+  return listeners->add(std::move(onFrameCallback));
 }
 
 void Choreographer::start() {

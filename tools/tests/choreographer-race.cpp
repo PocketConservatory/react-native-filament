@@ -76,6 +76,23 @@ void testRemoveDuringFrame() {
   std::puts("PASS remove during frame");
 }
 
+void testAddDuringFrame() {
+  FakeChoreographer choreographer;
+  choreographer.start();
+  int calls = 0;
+  std::vector<std::shared_ptr<Listener>> added;
+  auto adder = choreographer.addOnFrameListener([&](double) {
+    if (added.empty()) {
+      added.push_back(choreographer.addOnFrameListener([&](double) { calls++; }));
+    }
+  });
+  choreographer.frame(0);
+  calls = 0;
+  choreographer.frame(1);
+  expect(calls == 1, "a listener added inside a frame callback is not called on the next frame");
+  std::puts("PASS add during frame");
+}
+
 void testRaces() {
   constexpr auto duration = std::chrono::seconds(2);
   auto choreographer = std::make_shared<FakeChoreographer>();
@@ -86,6 +103,17 @@ void testRaces() {
 
   std::mutex listenersMutex;
   std::vector<std::shared_ptr<Listener>> listeners;
+
+  // Only touched on the frame thread, by listeners that add a listener from inside a frame.
+  std::vector<std::shared_ptr<Listener>> addedInFrame;
+  auto addFromFrame = [&](double timestamp) {
+    if (static_cast<long>(timestamp) % 16 == 0) {
+      addedInFrame.push_back(choreographer->addOnFrameListener([&](double) { calls++; }));
+      if (addedInFrame.size() > 32) {
+        addedInFrame.clear();
+      }
+    }
+  };
 
   std::thread frameThread([&] {
     double timestamp = 0;
@@ -99,9 +127,16 @@ void testRaces() {
     std::mt19937 random(42);
     while (!done) {
       switch (random() % 6) {
-        case 0:
-        case 1: {
+        case 0: {
           auto listener = choreographer->addOnFrameListener([&](double) { calls++; });
+          std::unique_lock lock(listenersMutex);
+          listeners.push_back(std::move(listener));
+          break;
+        }
+        case 1: {
+          // Adding here while a frame callback adds takes the same locks in the opposite order, unless
+          // addOnFrameListener() releases the list pointer lock before adding.
+          auto listener = choreographer->addOnFrameListener(addFromFrame);
           std::unique_lock lock(listenersMutex);
           listeners.push_back(std::move(listener));
           break;
@@ -151,6 +186,7 @@ void testRaces() {
   mutatorThread.join();
   destroyerThread.join();
   listeners.clear();
+  addedInFrame.clear();
   expect(frames > 0, "no frames ran");
   std::printf("PASS races (%ld frames, %ld listener calls)\n", frames.load(), calls.load());
 }
@@ -160,6 +196,7 @@ void testRaces() {
 int main() {
   testNoFramesAfterStop();
   testRemoveDuringFrame();
+  testAddDuringFrame();
   testRaces();
   if (failures > 0) {
     std::fprintf(stderr, "%d failure(s)\n", failures);
