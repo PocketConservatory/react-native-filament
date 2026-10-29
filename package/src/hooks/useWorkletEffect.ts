@@ -12,7 +12,7 @@ export function useWorkletEffect(workletFunction: () => CleanupFn | void) {
 
   useEffect(() => {
     // Errors are reported by wrapWithErrorHandler, don't report the rejection again
-    const cleanupPromise = workletContext.runAsync(wrapWithErrorHandler(workletFunction, contextId)).catch(() => undefined)
+    const cleanupPromise = Promise.resolve(workletContext.runAsync(wrapWithErrorHandler(workletFunction, contextId))).catch(() => undefined)
     return () => {
       cleanupPromise.then((cleanup): void => {
         if (cleanup == null || typeof cleanup !== 'function') {
