@@ -13,6 +13,9 @@
   CADisplayLink* _Nullable _displayLink;
   OnFrameCallback _callback;
   bool shouldContinueOnEnterForeground;
+  // Whether start() was called more recently than stop(). Background/foreground transitions must not resume a stopped
+  // display link.
+  bool _running;
 }
 - (instancetype)initWithCallback:(OnFrameCallback)callback {
   if (self = [super init]) {
@@ -20,6 +23,7 @@
     _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onFrame:)];
     _displayLink.paused = YES;
     shouldContinueOnEnterForeground = NO;
+    _running = NO;
     [_displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -35,17 +39,27 @@
 }
 
 - (void)start {
-  _displayLink.paused = NO;
+  @synchronized(self) {
+    _running = YES;
+    _displayLink.paused = NO;
+  }
 }
 
 - (void)stop {
-  _displayLink.paused = YES;
+  @synchronized(self) {
+    _running = NO;
+    shouldContinueOnEnterForeground = NO;
+    _displayLink.paused = YES;
+  }
 }
 
 - (void)invalidate {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
-  [_displayLink invalidate];
-  _displayLink = nil;
+  @synchronized(self) {
+    _running = NO;
+    [_displayLink invalidate];
+    _displayLink = nil;
+  }
 }
 
 - (void)onFrame:(CADisplayLink*)displayLink {
@@ -55,16 +69,21 @@
 // When the app enters the background we need to stop sending commands to metal.
 // Otherwise we run the risk of the metal view becoming blank, or not being able to update it anymore.
 - (void)appDidEnterBackground {
-  shouldContinueOnEnterForeground = !_displayLink.paused;
-  _displayLink.paused = YES;
+  @synchronized(self) {
+    shouldContinueOnEnterForeground = !_displayLink.paused;
+    _displayLink.paused = YES;
+  }
   NSLog(@"[react-native-filament] [DisplayLinkListener] Paused rendering, app entered background.");
 }
 
 - (void)appWillEnterForeground {
-  if (shouldContinueOnEnterForeground) {
+  @synchronized(self) {
+    if (!shouldContinueOnEnterForeground || !_running) {
+      return;
+    }
     _displayLink.paused = NO;
-    NSLog(@"[react-native-filament] [DisplayLinkListener] Resumed rendering, app entered foreground.");
   }
+  NSLog(@"[react-native-filament] [DisplayLinkListener] Resumed rendering, app entered foreground.");
 }
 
 - (void)dealloc {

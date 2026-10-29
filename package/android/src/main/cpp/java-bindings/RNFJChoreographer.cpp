@@ -24,12 +24,12 @@ void JChoreographer::onFrameLong(jlong timestamp) {
   onFrame(static_cast<double>(timestamp));
 }
 
-void JChoreographer::start() {
+void JChoreographer::platformStart() {
   static const auto method = javaClassLocal()->getMethod<void()>("start");
   method(_javaPart);
 }
 
-void JChoreographer::stop() {
+void JChoreographer::platformStop() {
   static const auto method = javaClassLocal()->getMethod<void()>("stop");
   method(_javaPart);
 }

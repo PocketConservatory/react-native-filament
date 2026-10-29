@@ -3,6 +3,7 @@
 //
 
 #include "RNFChoreographerWrapper.h"
+#include "threading/RNFDispatcher.h"
 
 namespace margelo {
 
@@ -31,19 +32,30 @@ void ChoreographerWrapper::stop() {
   pointee()->stop();
 }
 
-std::shared_ptr<Listener> ChoreographerWrapper::addFrameCallbackListener(RenderCallback onFrameCallback) {
-  std::unique_lock lock(_mutex);
+jsi::Value ChoreographerWrapper::addFrameCallbackListener(jsi::Runtime& runtime, const jsi::Value&, const jsi::Value* args, size_t count) {
+  if (count != 1) {
+    throw jsi::JSError(runtime, "addFrameCallbackListener(callback) expects exactly one argument!");
+  }
 
+  // The callback holds a jsi::Function of this runtime, but the listener list may drop it on any thread (JS, GC, frame
+  // thread). Always destroy it on this runtime's thread.
+  std::shared_ptr<Dispatcher> dispatcher = Dispatcher::getRuntimeGlobalDispatcher(runtime);
+  std::shared_ptr<RenderCallback> onFrameCallback(
+      new RenderCallback(JSIConverter<RenderCallback>::fromJSI(runtime, args[0])),
+      [dispatcher](RenderCallback* callback) { dispatcher->runAsync([callback]() { delete callback; }); });
+
+  // Not holding _mutex here: frames take the listener list lock before createFrameInfo() takes _mutex.
   Logger::log(TAG, "Adding frame callback listener");
 
   std::weak_ptr<ChoreographerWrapper> weakThis = shared<ChoreographerWrapper>();
-  return pointee()->addOnFrameListener([weakThis, onFrameCallback](double timestamp) {
+  std::shared_ptr<Listener> listener = pointee()->addOnFrameListener([weakThis, onFrameCallback](double timestamp) {
     auto sharedThis = weakThis.lock();
     if (sharedThis) {
       FrameInfo frameInfo = sharedThis->createFrameInfo(timestamp);
-      onFrameCallback(frameInfo);
+      (*onFrameCallback)(frameInfo);
     }
   });
+  return JSIConverter<std::shared_ptr<Listener>>::toJSI(runtime, listener);
 }
 
 FrameInfo ChoreographerWrapper::createFrameInfo(double timestamp) {

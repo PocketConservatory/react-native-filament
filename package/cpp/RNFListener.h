@@ -5,6 +5,7 @@
 #pragma once
 
 #include "jsi/RNFHybridObject.h"
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -25,7 +26,7 @@ public:
 
 private:
   ListenerRemover _remove;
-  bool _isRemoved;
+  std::atomic_bool _isRemoved;
   static constexpr auto TAG = "Listener";
 };
 
