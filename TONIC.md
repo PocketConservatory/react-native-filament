@@ -42,7 +42,7 @@ The builder downloads the official `react-native-filament@1.11.0` npm tarball, v
 
 The tarball contains `TONIC-PROVENANCE.json` recording the upstream archive, the fork commit and each engine's build record (its full file manifest ships as `{android,ios}/libs/filament/tonic-engine.json`). The builder rejects a dirty checkout by default. Use `--allow-dirty` only for pre-commit review and rebuild after committing; release only a build with `dirty: false`. No timestamp is written into provenance. The builder rejects an engine whose files differ from its manifest, that was not built from the pinned commit with the tracked Animator patch, or whose headers differ from the tracked headers, and verifies the packed native files after packing.
 
-Create tag `v1.11.0-tonic.6` at the packaged commit and upload `react-native-filament-1.11.0-tonic.6.tgz` and its `.sha256` file as GitHub release assets. Point the app dependency at that exact release asset URL and commit its Yarn lockfile checksum. Never replace an existing release asset: increment the Tonic version and publish a new release for every change.
+Create tag `v1.11.0-tonic.7` at the packaged commit and upload `react-native-filament-1.11.0-tonic.7.tgz` and its `.sha256` file as GitHub release assets. Point the app dependency at that exact release asset URL and commit its Yarn lockfile checksum. Never replace an existing release asset: increment the Tonic version and publish a new release for every change.
 
 Do not use a direct Git dependency: upstream tracks neither native static libraries nor generated JavaScript. Its prepare hook requires the larger Bun/submodule development workspace. The release tarball contains everything the app needs and requires no install-time native build scripts.
 
@@ -50,9 +50,23 @@ Do not use a direct Git dependency: upstream tracks neither native static librar
 
 On macOS, compile `tools/tests/apple-file-loader.mm` with `xcrun clang++`, C++17, ARC, and the Foundation framework, then run the resulting executable. It exercises the production file loader against real file URLs containing spaces, Unicode, and literal percent escapes, plus ordinary and missing files.
 
+## Threading contract
+
+Filament's engine is single-threaded. The fork keeps every engine mutation and destruction on the engine's render thread:
+
+- Only the render thread destroys a SwapChain or removes a frame listener. `SwapChainWrapper.isValid` turns false once native code has destroyed the swapchain, and native `beginFrame` checks the same state.
+- JS releases resources through the worklet context (`useDisposableResource`/`withCleanupScope` with a `workletContext`), so releases run in FIFO order after jobs already queued for that context.
+- Fire-and-forget worklet jobs go through `runOnWorkletContext`, which reports errors to the scene's `onError` handler, or as fatal when there is none.
+- On Android, `JDispatcher` runs jobs outside its queue lock, so posting work never waits on the current render job. The Android surface is released only after the engine has destroyed its swapchain and flushed.
+
 ## Choreographer race test
 
-`tools/tests/choreographer-race.cpp` links the real `RNFChoreographer.cpp`, `RNFListener.cpp` and `RNFListenerManager.h` with only the platform start/stop faked. It checks that no frame is delivered after `stop()` and that listeners may remove themselves during a frame, then runs frames on one thread while others add, remove and destroy listeners, call `removeAllListeners()` and toggle `start()`/`stop()`. Build and run it under ThreadSanitizer on macOS, with `RN` pointing at an installed `react-native` package (for the JSI sources):
+`tools/tests/choreographer-race.cpp` links the real `RNFChoreographer.cpp`, `RNFListener.cpp` and `RNFListenerManager.h` with only the platform start/stop faked. It checks that:
+
+- no frame is delivered after `stop()`;
+- listeners may remove themselves, or add new listeners, during a frame;
+- frames keep running while other threads add, remove and destroy listeners, call `removeAllListeners()` and toggle `start()`/`stop()`;
+- `stop()` called from inside frames races `start()`/`stop()` from another thread without the running flag and platform state getting out of step. Build and run it under ThreadSanitizer on macOS, with `RN` pointing at an installed `react-native` package (for the JSI sources):
 
 ```sh
 xcrun clang++ -std=c++17 -fsanitize=thread -g -O1 -Ipackage/cpp -I"$RN/ReactCommon/jsi" \
