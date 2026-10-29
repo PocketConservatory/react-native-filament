@@ -115,8 +115,13 @@ export function BackgroundImage({ source, materialSource, resizeMode = 'contain'
   // and destroyed before the deferred material release runs.
   useEffect(() => {
     if (entity == null) return
-    return () => renderableManager.destroyEntity(entity)
-  }, [entity, renderableManager])
+    return () => {
+      workletContext.runAsync(() => {
+        'worklet'
+        renderableManager.destroyEntity(entity)
+      })
+    }
+  }, [entity, renderableManager, workletContext])
 
   return null
 }

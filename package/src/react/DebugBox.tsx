@@ -20,7 +20,7 @@ export function DebugBox({ halfExtent: halfExtentProp, ...transformProps }: Debu
 
   const halfExtent = halfExtentProp ?? parentHalfExtend
 
-  const { renderableManager, scene } = useFilamentContext()
+  const { renderableManager, scene, workletContext } = useFilamentContext()
   const boxEntity = useMemo(() => {
     if (halfExtent == null) return null
 
@@ -33,8 +33,13 @@ export function DebugBox({ halfExtent: halfExtentProp, ...transformProps }: Debu
   useEntityInScene(scene, boxEntity ?? undefined)
   useEffect(() => {
     if (boxEntity == null) return
-    return () => renderableManager.destroyEntity(boxEntity)
-  }, [boxEntity, renderableManager])
+    return () => {
+      workletContext.runAsync(() => {
+        'worklet'
+        renderableManager.destroyEntity(boxEntity)
+      })
+    }
+  }, [boxEntity, renderableManager, workletContext])
 
   return null
 }

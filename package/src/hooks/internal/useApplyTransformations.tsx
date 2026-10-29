@@ -21,7 +21,7 @@ type Params = {
 export function useApplyTransformations({ to: entity, transformProps, aabb }: Params) {
   const { translate: position, scale, rotate, transformToUnitCube, multiplyWithCurrentTransform = true } = transformProps ?? {}
 
-  const { transformManager } = useFilamentContext()
+  const { transformManager, workletContext } = useFilamentContext()
   // TODO: multiplying current transformations is a bit problematic with react.
   // E.g. in strict mode or concurrent rendering our effects can be called multiple times.
   // Running an effect multiple times with transformation multiplication can lead to unexpected results.
@@ -32,12 +32,13 @@ export function useApplyTransformations({ to: entity, transformProps, aabb }: Pa
   useEffect(() => {
     if (entity == null) return
 
-    if (transformToUnitCube && aabb != null) {
-      transformManager.transformToUnitCube(entity, aabb)
-    }
+    const unitCubeAabb = transformToUnitCube ? aabb : undefined
+    let newScale: Float3 | undefined
+    let newRotate: Float3 | undefined
+    let newPosition: Float3 | undefined
 
     if (!isWorkletSharedValue(scale) && Array.isArray(scale) && (prevScale.current == null || !areFloat3Equal(scale, prevScale.current))) {
-      transformManager.setEntityScale(entity, scale, multiplyWithCurrentTransform)
+      newScale = scale
       prevScale.current = scale
     }
 
@@ -46,11 +47,7 @@ export function useApplyTransformations({ to: entity, transformProps, aabb }: Pa
       Array.isArray(rotate) &&
       (prevRotate.current == null || !areFloat3Equal(rotate, prevRotate.current))
     ) {
-      const [x, y, z] = rotate
-      transformManager.setEntityRotation(entity, x, [1, 0, 0], multiplyWithCurrentTransform)
-      // Rotation across axis is one operation so we need to always multiply the remaining rotations:
-      transformManager.setEntityRotation(entity, y, [0, 1, 0], true)
-      transformManager.setEntityRotation(entity, z, [0, 0, 1], true)
+      newRotate = rotate
       prevRotate.current = rotate
     }
 
@@ -59,9 +56,32 @@ export function useApplyTransformations({ to: entity, transformProps, aabb }: Pa
       Array.isArray(position) &&
       (prevPosition.current == null || !areFloat3Equal(position, prevPosition.current))
     ) {
-      transformManager.setEntityPosition(entity, position, multiplyWithCurrentTransform)
+      newPosition = position
       prevPosition.current = position
     }
+
+    if (unitCubeAabb == null && newScale == null && newRotate == null && newPosition == null) return
+
+    // Filament is not thread-safe, so transforms are applied on the worklet thread that renders
+    workletContext.runAsync(() => {
+      'worklet'
+      if (unitCubeAabb != null) {
+        transformManager.transformToUnitCube(entity, unitCubeAabb)
+      }
+      if (newScale != null) {
+        transformManager.setEntityScale(entity, newScale, multiplyWithCurrentTransform)
+      }
+      if (newRotate != null) {
+        const [x, y, z] = newRotate
+        transformManager.setEntityRotation(entity, x, [1, 0, 0], multiplyWithCurrentTransform)
+        // Rotation across axis is one operation so we need to always multiply the remaining rotations:
+        transformManager.setEntityRotation(entity, y, [0, 1, 0], true)
+        transformManager.setEntityRotation(entity, z, [0, 0, 1], true)
+      }
+      if (newPosition != null) {
+        transformManager.setEntityPosition(entity, newPosition, multiplyWithCurrentTransform)
+      }
+    })
   }, [
     aabb,
     entity,
@@ -74,6 +94,7 @@ export function useApplyTransformations({ to: entity, transformProps, aabb }: Pa
     scale,
     transformManager,
     transformToUnitCube,
+    workletContext,
   ])
 
   const prevScaleShared = useRef(isWorkletSharedValue(scale) ? Worklets.createSharedValue<Float3 | null>(null) : null)
