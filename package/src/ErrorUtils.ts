@@ -132,8 +132,9 @@ export function runOnWorkletContext<T>(
   job: () => T,
   { ignoreReleased = false }: { ignoreReleased?: boolean } = {}
 ): Promise<T | undefined> {
-  return workletContext
-    .runAsync(() => {
+  // runAsync returns a native thenable without catch(), so adopt it into a real Promise first.
+  return Promise.resolve(
+    workletContext.runAsync(() => {
       'worklet'
       try {
         return job()
@@ -142,5 +143,5 @@ export function runOnWorkletContext<T>(
         return undefined
       }
     })
-    .catch(() => undefined)
+  ).catch(() => undefined)
 }
