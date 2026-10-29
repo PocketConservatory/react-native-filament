@@ -35,10 +35,16 @@ void JDispatcher::scheduleTrigger() {
 }
 
 void JDispatcher::trigger() {
-  std::unique_lock lock(_mutex);
-  auto job = _jobs.front();
+  // Jobs run outside _mutex, so runAsync() on another thread never waits for the running job: callers may hold locks
+  // that the job needs. _runMutex keeps jobs one at a time and in order on executors with several threads.
+  std::unique_lock runLock(_runMutex);
+  std::function<void()> job;
+  {
+    std::unique_lock lock(_mutex);
+    job = std::move(_jobs.front());
+    _jobs.pop();
+  }
   job();
-  _jobs.pop();
 }
 
 void JDispatcher::runAsync(std::function<void()>&& function) {
