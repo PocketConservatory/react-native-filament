@@ -250,7 +250,10 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
       }
 
       try {
-        return engine.createSwapChainForSurface(surfaceProvider, enableTransparentRendering)
+        const newSwapChain = engine.createSwapChainForSurface(surfaceProvider, enableTransparentRendering)
+        // Set on the render thread so it is ordered with the swapchain release, which runs there too
+        engine.setSwapChain(newSwapChain)
+        return newSwapChain
       } catch (error) {
         // Report this error as none-fatal. We only throw in createSwapChainForSurface if the surface is already released.
         // There is the chance of a race condition where the surface is destroyed but our JS onDestroy listener hasn't been called yet.
@@ -265,10 +268,6 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
       return
     }
     this.swapChain = swapChain
-
-    // Apply the swapchain to the engine …
-    Logger.debug('Setting swap chain')
-    engine.setSwapChain(this.swapChain)
 
     // Set the render callback in the choreographer:
     const { renderCallback } = this.props

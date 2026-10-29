@@ -75,9 +75,18 @@ protected:
   }
 
   /**
+   * Same as `pointee()`, but returns nullptr instead of throwing if it has already been manually released.
+   */
+  std::shared_ptr<T> pointeeOrNull() {
+    std::unique_lock lock(_mutex);
+
+    return _pointer;
+  }
+
+  /**
    * Get if the pointer is still valid and strong.
    */
-  bool getIsValid() {
+  virtual bool getIsValid() {
     std::unique_lock lock(_mutex);
 
     return _pointer != nullptr;

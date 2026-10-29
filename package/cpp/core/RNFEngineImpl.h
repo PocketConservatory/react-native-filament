@@ -16,6 +16,7 @@
 #include "RNFRenderableManagerWrapper.h"
 #include "RNFSurface.h"
 #include "RNFSurfaceProvider.h"
+#include "RNFSwapChainWrapper.h"
 #include "RNFTransformManagerWrapper.h"
 #include "bullet/RNFRigidBodyWrapper.h"
 #include "core/utils/RNFEntityWrapper.h"
@@ -54,8 +55,8 @@ public:
    * `nativeWindowOwner` is kept alive until Filament has destroyed the swapchain, so the native window
    * (Surface, recorder) cannot be released while the backend still holds it.
    */
-  std::shared_ptr<SwapChain> createSwapChain(void* nativeWindow, u_int64_t flags, std::shared_ptr<void> nativeWindowOwner = nullptr);
-  std::shared_ptr<SwapChain> createWebPExportSwapChain(int width, int height);
+  std::shared_ptr<SwapChainWrapper> createSwapChain(void* nativeWindow, u_int64_t flags, std::shared_ptr<void> nativeWindowOwner = nullptr);
+  std::shared_ptr<SwapChainWrapper> createWebPExportSwapChain(int width, int height);
   void setSwapChain(std::shared_ptr<SwapChain> swapChain);
   void surfaceSizeChanged(int width, int height);
 
@@ -107,6 +108,7 @@ private:
   std::shared_ptr<Camera> createCamera();
   // Internal helper method to turn an FilamentAsset ptr into a FilamentAssetWrapper
   std::shared_ptr<FilamentAssetWrapper> makeAssetWrapper(FilamentAsset* assetPtr);
+  std::shared_ptr<SwapChainWrapper> adoptSwapChain(SwapChain* swapChain, std::shared_ptr<void> nativeWindowOwner);
 
 private:
   static constexpr auto TAG = "EngineImpl";

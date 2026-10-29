@@ -150,39 +150,30 @@ void EngineImpl::surfaceSizeChanged(int width, int height) {
   }
 }
 
-std::shared_ptr<SwapChain> EngineImpl::createSwapChain(void* nativeWindow, u_int64_t flags, std::shared_ptr<void> nativeWindowOwner) {
-  Logger::log(TAG, "Creating swapchain ...");
+std::shared_ptr<SwapChainWrapper> EngineImpl::adoptSwapChain(SwapChain* swapChain, std::shared_ptr<void> nativeWindowOwner) {
   auto dispatcher = _rendererDispatcher;
-  return References<SwapChain>::adoptEngineRef(_engine, _engine->createSwapChain(nativeWindow, flags),
-                                               [dispatcher, nativeWindowOwner](std::shared_ptr<Engine> engine, SwapChain* swapChain) {
-                                                 dispatcher->runAsync([engine, swapChain, nativeWindowOwner]() {
-                                                   Logger::log(TAG, "Destroying swapchain...");
-                                                   engine->destroy(swapChain);
-                                                   // Required to ensure we don't return before Filament is done executing the
-                                                   // destroySwapChain command. Only then may the native window go away: createSwapChain is
-                                                   // queued on the backend thread as well, and a swapchain released right after creation
-                                                   // would otherwise hand it an already freed window.
-                                                   engine->flushAndWait();
-                                                   Logger::log(TAG, "Destroyed swapchain!");
-                                                 });
-                                               });
+  auto lifetime = std::make_shared<SwapChainLifetime>(_engine, swapChain, std::move(nativeWindowOwner));
+  std::shared_ptr<SwapChain> sharedSwapChain =
+      References<SwapChain>::adoptEngineRef(_engine, swapChain, [dispatcher, lifetime](std::shared_ptr<Engine>, SwapChain*) {
+        dispatcher->runAsync([lifetime]() { lifetime->destroy(); });
+      });
+  return std::make_shared<SwapChainWrapper>(sharedSwapChain, lifetime);
 }
 
-std::shared_ptr<SwapChain> EngineImpl::createWebPExportSwapChain(int width, int height) {
+std::shared_ptr<SwapChainWrapper> EngineImpl::createSwapChain(void* nativeWindow, u_int64_t flags,
+                                                              std::shared_ptr<void> nativeWindowOwner) {
+  Logger::log(TAG, "Creating swapchain ...");
+  return adoptSwapChain(_engine->createSwapChain(nativeWindow, flags), std::move(nativeWindowOwner));
+}
+
+std::shared_ptr<SwapChainWrapper> EngineImpl::createWebPExportSwapChain(int width, int height) {
   if (width < 1 || height < 1 || width > 1024 || height > 1024)
     throw std::invalid_argument("WebP dimensions must be 1..1024");
-  auto dispatcher = _rendererDispatcher;
   if (_view)
     _view->setBlendMode(View::BlendMode::TRANSLUCENT);
-  return References<SwapChain>::adoptEngineRef(_engine,
-                                               _engine->createSwapChain(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                                                                        SwapChain::CONFIG_TRANSPARENT | SwapChain::CONFIG_READABLE),
-                                               [dispatcher](std::shared_ptr<Engine> engine, SwapChain* swapChain) {
-                                                 dispatcher->runAsync([engine, swapChain]() {
-                                                   engine->destroy(swapChain);
-                                                   engine->flushAndWait();
-                                                 });
-                                               });
+  return adoptSwapChain(_engine->createSwapChain(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                                                 SwapChain::CONFIG_TRANSPARENT | SwapChain::CONFIG_READABLE),
+                        nullptr);
 }
 
 void EngineImpl::setSwapChain(std::shared_ptr<SwapChain> swapChain) {
