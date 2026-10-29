@@ -24,14 +24,19 @@ void JChoreographer::onFrameLong(jlong timestamp) {
   onFrame(static_cast<double>(timestamp));
 }
 
+// stop() also runs from ~ChoreographerWrapper, which Hermes may call on its GC thread, a thread the JVM does not know.
 void JChoreographer::platformStart() {
-  static const auto method = javaClassLocal()->getMethod<void()>("start");
-  method(_javaPart);
+  jni::ThreadScope::WithClassLoader([&]() {
+    static const auto method = javaClassLocal()->getMethod<void()>("start");
+    method(_javaPart);
+  });
 }
 
 void JChoreographer::platformStop() {
-  static const auto method = javaClassLocal()->getMethod<void()>("stop");
-  method(_javaPart);
+  jni::ThreadScope::WithClassLoader([&]() {
+    static const auto method = javaClassLocal()->getMethod<void()>("stop");
+    method(_javaPart);
+  });
 }
 
 } // namespace margelo
