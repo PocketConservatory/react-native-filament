@@ -14,7 +14,7 @@ export type BackgroundImageProps = {
 }
 
 export function BackgroundImage({ source, materialSource, resizeMode = 'contain' }: BackgroundImageProps) {
-  const { engine, renderableManager, scene, view } = useFilamentContext()
+  const { engine, renderableManager, scene, view, workletContext } = useFilamentContext()
 
   // Create the material which will be used to render the image
   const imageMaterialBuffer = useBuffer({ source: materialSource })
@@ -98,7 +98,8 @@ export function BackgroundImage({ source, materialSource, resizeMode = 'contain'
 
       return newMaterial
     }),
-    [engine, imageMaterialBuffer, imageBuffer]
+    [engine, imageMaterialBuffer, imageBuffer],
+    workletContext
   )
 
   // Create the geometric shape (a plane)

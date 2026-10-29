@@ -32,7 +32,8 @@ export function useRecorder({ width, height, fps, bitRate }: RecorderOptions): R
       'worklet'
       return engine.createSwapChainForRecorder(recorder)
     }),
-    [engine, recorder]
+    [engine, recorder],
+    workletContext
   )
 
   useWorkletEffect(() => {
