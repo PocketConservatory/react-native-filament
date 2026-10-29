@@ -167,10 +167,10 @@ void EngineImpl::surfaceSizeChanged(int width, int height) {
 std::shared_ptr<SwapChainWrapper> EngineImpl::adoptSwapChain(SwapChain* swapChain, std::shared_ptr<void> nativeWindowOwner) {
   auto dispatcher = _rendererDispatcher;
   auto lifetime = std::make_shared<SwapChainLifetime>(_engine, swapChain, std::move(nativeWindowOwner));
-  std::shared_ptr<SwapChain> sharedSwapChain =
-      References<SwapChain>::adoptEngineRef(_engine, swapChain, [dispatcher, lifetime](std::shared_ptr<Engine>, SwapChain*) {
-        dispatcher->runAsync([lifetime]() { lifetime->destroy(); });
-      });
+  // Only the lifetime references the engine, and it drops the reference once native code destroyed the swapchain, so a
+  // destroyed swapchain that JS has not released cannot keep the engine alive.
+  std::shared_ptr<SwapChain> sharedSwapChain = References<SwapChain>::adoptRef(
+      swapChain, [dispatcher, lifetime](SwapChain*) { dispatcher->runAsync([lifetime]() { lifetime->destroy(); }); });
   return std::make_shared<SwapChainWrapper>(sharedSwapChain, lifetime);
 }
 
