@@ -73,17 +73,21 @@ EngineImpl::EngineImpl(std::shared_ptr<Dispatcher> rendererDispatcher, std::shar
   resourceLoaderPtr->addTextureProvider("image/ktx2", ktx2Provider);
   resourceLoaderPtr->addTextureProvider("image/webp", webpProvider);
 
-  _resourceLoader =
-      References<gltfio::ResourceLoader>::adoptEngineRef(engine, resourceLoaderPtr,
-                                                         [stbProvider, ktx2Provider, webpProvider, rendererDispatcher](
-                                                             std::shared_ptr<Engine> engine, gltfio::ResourceLoader* resourceLoader) {
-                                                           Logger::log(TAG, "Destroying resource loader...");
-                                                           resourceLoader->evictResourceData();
-                                                           delete resourceLoader;
-                                                           delete stbProvider;
-                                                           delete ktx2Provider;
-                                                           delete webpProvider;
-                                                         });
+  _resourceLoader = References<gltfio::ResourceLoader>::adoptEngineRef(
+      engine, resourceLoaderPtr,
+      [stbProvider, ktx2Provider, webpProvider, rendererDispatcher](std::shared_ptr<Engine> engine,
+                                                                    gltfio::ResourceLoader* resourceLoader) {
+        // Texture providers wait for their decoding jobs when deleted, which Filament only allows on a thread adopted by
+        // the engine's JobSystem, i.e. the render thread. The job keeps the engine alive until then.
+        rendererDispatcher->runAsync([engine, stbProvider, ktx2Provider, webpProvider, resourceLoader]() {
+          Logger::log(TAG, "Destroying resource loader...");
+          resourceLoader->evictResourceData();
+          delete resourceLoader;
+          delete stbProvider;
+          delete ktx2Provider;
+          delete webpProvider;
+        });
+      });
 
   // Setup filament:
   _renderer = createRenderer(displayRefreshRate);
