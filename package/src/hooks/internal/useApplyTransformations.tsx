@@ -5,6 +5,8 @@ import { AABB, Entity, Float3 } from '../../types'
 import { areFloat3Equal, isWorkletSharedValue } from '../../utilities/helper'
 import { useWorkletEffect } from '../useWorkletEffect'
 import { ISharedValue, Worklets } from 'react-native-worklets-core'
+import { runOnWorkletContext } from '../../ErrorUtils'
+import { RenderCallbackContext } from '../../react/RenderCallbackContext'
 
 type Params = {
   // If null it will not take the entity from the context, as it indicates that it will be provided through the param
@@ -22,6 +24,7 @@ export function useApplyTransformations({ to: entity, transformProps, aabb }: Pa
   const { translate: position, scale, rotate, transformToUnitCube, multiplyWithCurrentTransform = true } = transformProps ?? {}
 
   const { transformManager, workletContext } = useFilamentContext()
+  const { contextId } = RenderCallbackContext.useRenderContext()
   // TODO: multiplying current transformations is a bit problematic with react.
   // E.g. in strict mode or concurrent rendering our effects can be called multiple times.
   // Running an effect multiple times with transformation multiplication can lead to unexpected results.
@@ -63,7 +66,7 @@ export function useApplyTransformations({ to: entity, transformProps, aabb }: Pa
     if (unitCubeAabb == null && newScale == null && newRotate == null && newPosition == null) return
 
     // Filament is not thread-safe, so transforms are applied on the worklet thread that renders
-    workletContext.runAsync(() => {
+    runOnWorkletContext(workletContext, contextId, () => {
       'worklet'
       if (unitCubeAabb != null) {
         transformManager.transformToUnitCube(entity, unitCubeAabb)
@@ -84,6 +87,7 @@ export function useApplyTransformations({ to: entity, transformProps, aabb }: Pa
     })
   }, [
     aabb,
+    contextId,
     entity,
     multiplyWithCurrentTransform,
     position,

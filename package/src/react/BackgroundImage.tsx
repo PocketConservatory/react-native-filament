@@ -6,6 +6,8 @@ import { useWorkletMemo } from '../hooks/useWorkletMemo'
 import { Mat3f } from '../types'
 import { useFilamentContext } from '../hooks/useFilamentContext'
 import { useEffect } from 'react'
+import { runOnWorkletContext } from '../ErrorUtils'
+import { RenderCallbackContext } from './RenderCallbackContext'
 
 export type BackgroundImageProps = {
   source: BufferSource
@@ -15,6 +17,7 @@ export type BackgroundImageProps = {
 
 export function BackgroundImage({ source, materialSource, resizeMode = 'contain' }: BackgroundImageProps) {
   const { engine, renderableManager, scene, view, workletContext } = useFilamentContext()
+  const { contextId } = RenderCallbackContext.useRenderContext()
 
   // Create the material which will be used to render the image
   const imageMaterialBuffer = useBuffer({ source: materialSource })
@@ -116,12 +119,17 @@ export function BackgroundImage({ source, materialSource, resizeMode = 'contain'
   useEffect(() => {
     if (entity == null) return
     return () => {
-      workletContext.runAsync(() => {
-        'worklet'
-        renderableManager.destroyEntity(entity)
-      })
+      runOnWorkletContext(
+        workletContext,
+        contextId,
+        () => {
+          'worklet'
+          renderableManager.destroyEntity(entity)
+        },
+        { ignoreReleased: true }
+      )
     }
-  }, [entity, renderableManager, workletContext])
+  }, [contextId, entity, renderableManager, workletContext])
 
   return null
 }

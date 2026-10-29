@@ -2,7 +2,7 @@ import React, { createContext, DependencyList, PropsWithChildren, useCallback, u
 import { FrameInfo, RenderCallback } from 'react-native-filament'
 import { isWorklet } from 'react-native-worklets-core'
 import { useFilamentContext } from '../hooks/useFilamentContext'
-import { addErrorHandler, FilamentErrorHandler } from '../ErrorUtils'
+import { addErrorHandler, FilamentErrorHandler, runOnWorkletContext } from '../ErrorUtils'
 
 let nextContextId = 0
 let nextCallbackId = 0
@@ -59,7 +59,7 @@ export const makeRenderContext = () => {
 
     useEffect(() => {
       return () => {
-        workletContext.runAsync(() => {
+        runOnWorkletContext(workletContext, contextId, () => {
           'worklet'
           delete global.__rnfRenderCallbacks?.[contextId]
         })
@@ -72,7 +72,7 @@ export const makeRenderContext = () => {
           throw new Error('Render callbacks must be worklets. Add a "worklet" directive to the function.')
         }
         const callbackId = nextCallbackId++
-        workletContext.runAsync(() => {
+        runOnWorkletContext(workletContext, contextId, () => {
           'worklet'
           if (global.__rnfRenderCallbacks == null) global.__rnfRenderCallbacks = {}
           const registry = global.__rnfRenderCallbacks
@@ -80,7 +80,7 @@ export const makeRenderContext = () => {
           registry[contextId][callbackId] = callback
         })
         return () => {
-          workletContext.runAsync(() => {
+          runOnWorkletContext(workletContext, contextId, () => {
             'worklet'
             delete global.__rnfRenderCallbacks?.[contextId]?.[callbackId]
           })

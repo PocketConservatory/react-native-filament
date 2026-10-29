@@ -1,4 +1,4 @@
-import { Worklets } from 'react-native-worklets-core'
+import { Worklets, type IWorkletContext } from 'react-native-worklets-core'
 
 /**
  * Receives Filament errors of a scene on the JS thread instead of reporting them as fatal errors.
@@ -118,4 +118,29 @@ export const wrapWithErrorHandler = <T extends (...args: any[]) => any>(
       throw error
     }
   }
+}
+
+/**
+ * Runs `job` (a worklet) on `workletContext` without handling its result on the JS thread. A throw is reported with
+ * {@linkcode reportWorkletError} for `contextId`, so it is fatal unless that context has an `onError` handler.
+ * With `ignoreReleased`, errors from using an already released object are dropped, which is teardown noise.
+ * @returns The job's result, or `undefined` if it threw. The promise never rejects.
+ */
+export function runOnWorkletContext<T>(
+  workletContext: IWorkletContext,
+  contextId: number,
+  job: () => T,
+  { ignoreReleased = false }: { ignoreReleased?: boolean } = {}
+): Promise<T | undefined> {
+  return workletContext
+    .runAsync(() => {
+      'worklet'
+      try {
+        return job()
+      } catch (error) {
+        if (!(ignoreReleased && isReleasedPointerError(error))) reportWorkletError(error, true, contextId)
+        return undefined
+      }
+    })
+    .catch(() => undefined)
 }

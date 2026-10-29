@@ -1,4 +1,5 @@
 import type { IWorkletContext } from 'react-native-worklets-core'
+import { NO_CONTEXT_ID, runOnWorkletContext } from '../ErrorUtils'
 
 /**
  * Operations that are releasing memory from JS should be executed after cleanup functions
@@ -29,7 +30,7 @@ export function withCleanupScope(cleanupFunction: Function, workletContext?: IWo
     setTimeout(() => {
       if (workletContext != null) {
         // Queued behind the jobs already scheduled on that context, which may still be using the resource
-        workletContext.runAsync(cleanupFunction as () => void)
+        runOnWorkletContext(workletContext, NO_CONTEXT_ID, cleanupFunction as () => void, { ignoreReleased: true })
       } else {
         cleanupFunction()
       }

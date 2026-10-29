@@ -1,7 +1,7 @@
 import React from 'react'
 import { FilamentProxy } from '../native/FilamentProxy'
 import FilamentNativeView, { type FilamentViewNativeType, type NativeProps } from '../native/specs/FilamentViewNativeComponent'
-import { isReleasedPointerError, NO_CONTEXT_ID, reportWorkletError } from '../ErrorUtils'
+import { isReleasedPointerError, NO_CONTEXT_ID, reportWorkletError, runOnWorkletContext } from '../ErrorUtils'
 import { FilamentContext } from '../hooks/useFilamentContext'
 import { RenderCallback, SwapChain } from 'react-native-filament'
 import type { SurfaceProvider, FilamentView as RNFFilamentView } from '../native/FilamentViewTypes'
@@ -161,10 +161,15 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     // updateRenderCallback might have been called again meanwhile. Then the listener we just set is stale:
     if (!this.isComponentMounted || !this.isSurfaceAlive.value || token !== renderToken.value) {
       Logger.debug('🚧 Render callback listener is stale, removing it')
-      workletContext.runAsync(() => {
-        'worklet'
-        listener.remove()
-      })
+      runOnWorkletContext(
+        workletContext,
+        contextId,
+        () => {
+          'worklet'
+          listener.remove()
+        },
+        { ignoreReleased: true }
+      )
       return
     }
 
@@ -220,12 +225,17 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     const swapChain = this.swapChain
     this.renderCallbackListener = undefined
     this.swapChain = undefined
-    workletContext.runAsync(() => {
-      'worklet'
-      if (choreographer.isValid) choreographer.stop()
-      listener?.remove()
-      if (swapChain?.isValid) swapChain.release()
-    })
+    runOnWorkletContext(
+      workletContext,
+      this.props.contextId ?? NO_CONTEXT_ID,
+      () => {
+        'worklet'
+        if (choreographer.isValid) choreographer.stop()
+        listener?.remove()
+        if (swapChain?.isValid) swapChain.release()
+      },
+      { ignoreReleased: true }
+    )
 
     // Unlink the view from the choreographer. The native view might be destroyed later, after another FilamentView is created using the same choreographer (and then it would stop the rendering)
     this.view?.setChoreographer(undefined)
@@ -329,10 +339,15 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     }
     if (!isCurrentSurface) {
       Logger.info('🚧 Surface was destroyed or the component unmounted while creating the swap chain, releasing it.')
-      workletContext.runAsync(() => {
-        'worklet'
-        if (swapChain.isValid) swapChain.release()
-      })
+      runOnWorkletContext(
+        workletContext,
+        contextId,
+        () => {
+          'worklet'
+          if (swapChain.isValid) swapChain.release()
+        },
+        { ignoreReleased: true }
+      )
       return
     }
     this.swapChain = swapChain
