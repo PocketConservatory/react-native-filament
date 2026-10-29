@@ -23,6 +23,7 @@ export * from './utilities/getAssetFromModel'
 export * from './utilities/withCleanupScope'
 export * from './utilities/logger/LoggingInterface'
 export { setLogger } from './utilities/logger/Logger'
+export type { FilamentErrorHandler } from './ErrorUtils'
 
 // Bullet 3
 export * from './bullet'

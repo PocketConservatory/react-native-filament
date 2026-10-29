@@ -7,12 +7,18 @@ import React from 'react'
 import { Configurator, RendererConfigProps, ViewConfigProps } from './Configurator'
 import { FilamentContext, FilamentContextType } from '../hooks/useFilamentContext'
 import { RenderCallbackContext } from './RenderCallbackContext'
+import { FilamentErrorHandler } from '../ErrorUtils'
 
 export type FilamentProviderProps = PropsWithChildren<
   Omit<EngineProps, 'context'> &
     ViewConfigProps &
     RendererConfigProps & {
       fallback?: React.ReactElement
+      /**
+       * Receives errors from the scene's worklets and render loop on the JS thread, e.g. to show a fallback.
+       * Without it they are reported as fatal errors. An error in the render loop stops rendering and is reported once.
+       */
+      onError?: FilamentErrorHandler
     }
 >
 
@@ -52,6 +58,7 @@ export function FilamentScene({
   backend,
   frameRateOptions,
   exportMode = false,
+  onError,
   ...viewProps
 }: FilamentProviderProps) {
   // First create the engine, which we need to create (almost) all other filament APIs
@@ -129,7 +136,7 @@ export function FilamentScene({
   return (
     <FilamentContext.Provider value={value}>
       <Configurator rendererProps={rendererProps} viewProps={viewProps}>
-        <RenderCallbackContext.RenderContextProvider>{children}</RenderCallbackContext.RenderContextProvider>
+        <RenderCallbackContext.RenderContextProvider onError={onError}>{children}</RenderCallbackContext.RenderContextProvider>
       </Configurator>
     </FilamentContext.Provider>
   )

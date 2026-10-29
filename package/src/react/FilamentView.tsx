@@ -1,7 +1,7 @@
 import React from 'react'
 import { FilamentProxy } from '../native/FilamentProxy'
 import FilamentNativeView, { type FilamentViewNativeType, type NativeProps } from '../native/specs/FilamentViewNativeComponent'
-import { reportWorkletError, wrapWithErrorHandler } from '../ErrorUtils'
+import { isReleasedPointerError, NO_CONTEXT_ID, reportWorkletError } from '../ErrorUtils'
 import { FilamentContext } from '../hooks/useFilamentContext'
 import { RenderCallback, SwapChain } from 'react-native-filament'
 import type { SurfaceProvider, FilamentView as RNFFilamentView } from '../native/FilamentViewTypes'
@@ -29,6 +29,12 @@ export interface FilamentProps extends PublicNativeProps {
    * @default false
    */
   paused?: boolean
+  /**
+   * The id of the render context (see `useRenderContext().contextId`) whose `onError` handlers receive this view's
+   * errors.
+   * @internal
+   */
+  contextId?: number
 }
 
 type RefType = InstanceType<FilamentViewNativeType>
@@ -53,6 +59,8 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
   // Only the frame listener added for the latest token renders; bumping it silences older listeners at once
   private renderToken = Worklets.createSharedValue(0)
   private isPaused = Worklets.createSharedValue(false)
+  // The render token whose frame listener threw. Its listener stops rendering, so the error is reported once.
+  private failedRenderToken = Worklets.createSharedValue(-1)
   private isComponentMounted = false
   private viewId: number
 
@@ -92,6 +100,8 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     renderToken.value = token
     const isSurfaceAlive = this.isSurfaceAlive
     const isPaused = this.isPaused
+    const failedRenderToken = this.failedRenderToken
+    const contextId = this.props.contextId ?? NO_CONTEXT_ID
 
     // When requesting to update the render callback we have to assume that the previous one is not valid anymore
     // ie. its pointing to already released resources from useDisposableResource:
@@ -100,10 +110,10 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
 
     // Adding a new render callback listener is an async operation
     Logger.debug('Setting render callback')
-    const listener = await workletContext.runAsync(
-      wrapWithErrorHandler(() => {
-        'worklet'
+    const listener = await workletContext.runAsync(() => {
+      'worklet'
 
+      try {
         previousListener?.remove()
         // The surface, swapchain or choreographer may have gone away while this job was queued
         if (renderToken.value !== token || !isSurfaceAlive.value || !swapChain.isValid || !choreographer.isValid) {
@@ -116,7 +126,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
         const newListener = choreographer.addFrameCallbackListener((frameInfo) => {
           'worklet'
 
-          if (renderToken.value !== token || !swapChain.isValid) return
+          if (renderToken.value !== token || failedRenderToken.value === token || !swapChain.isValid) return
 
           try {
             callback(frameInfo)
@@ -128,14 +138,23 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
               renderer.endFrame()
             }
           } catch (error) {
-            reportWorkletError(error)
+            // Resources released by an unmount or a surface loss that this frame raced with
+            const isStale = renderToken.value !== token || !isSurfaceAlive.value
+            if (isStale && isReleasedPointerError(error)) return
+            failedRenderToken.value = token
+            if (choreographer.isValid) choreographer.stop()
+            reportWorkletError(error, true, contextId)
           }
         })
         // Only start after the latest successful call for attaching a listener
         if (!isPaused.value) choreographer.start()
         return newListener
-      })
-    )
+      } catch (error) {
+        const isStale = renderToken.value !== token || !isSurfaceAlive.value
+        if (!(isStale && isReleasedPointerError(error))) reportWorkletError(error, true, contextId)
+        return undefined
+      }
+    })
     if (listener == null) return
 
     // As setting the listener is async, the component might have unmounted, the surface might have been destroyed or
@@ -280,6 +299,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     const { engine, workletContext } = this.getContext()
     // Create a swap chain …
     const enableTransparentRendering = this.props.enableTransparentRendering ?? true
+    const contextId = this.props.contextId ?? NO_CONTEXT_ID
     Logger.debug('Creating swap chain')
     const swapChain = await workletContext.runAsync(() => {
       'worklet'
@@ -296,7 +316,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
       } catch (error) {
         // Report this error as none-fatal. We only throw in createSwapChainForSurface if the surface is already released.
         // There is the chance of a race condition where the surface is destroyed but our JS onDestroy listener hasn't been called yet.
-        reportWorkletError(error, false)
+        reportWorkletError(error, false, contextId)
         return null
       }
     })
