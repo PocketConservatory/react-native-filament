@@ -1,13 +1,14 @@
 import React, { PropsWithChildren, useCallback } from 'react'
 import { RenderCallbackContext, runRenderCallbacks } from './RenderCallbackContext'
-import { FilamentView, PublicNativeProps } from './FilamentView'
+import { FilamentProps, FilamentView, PublicNativeProps } from './FilamentView'
 import { RenderCallback } from '../types'
 import { StyleSheet, ViewStyle } from 'react-native'
 
-type ForwardProps = PublicNativeProps & {
-  style?: ViewStyle
-  renderCallback?: RenderCallback
-}
+type ForwardProps = PublicNativeProps &
+  Pick<FilamentProps, 'paused'> & {
+    style?: ViewStyle
+    renderCallback?: RenderCallback
+  }
 
 /**
  * This is the component actually exposed to the user. It wraps the `FilamentView` and adds the renderCallbacks.

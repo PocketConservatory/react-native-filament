@@ -22,6 +22,13 @@ export interface FilamentProps extends PublicNativeProps {
    * @note Don't call any methods on `engine` here - this will lead to deadlocks!
    */
   renderCallback: RenderCallback
+  /**
+   * Whether rendering is paused. While paused, the view neither renders nor restarts rendering when its surface
+   * is recreated or its render callback changes. Same as calling {@linkcode FilamentView.pause}/{@linkcode FilamentView.resume}.
+   *
+   * @default false
+   */
+  paused?: boolean
 }
 
 type RefType = InstanceType<FilamentViewNativeType>
@@ -45,6 +52,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
   private surfaceGeneration = 0
   // Only the frame listener added for the latest token renders; bumping it silences older listeners at once
   private renderToken = Worklets.createSharedValue(0)
+  private isPaused = Worklets.createSharedValue(false)
   private isComponentMounted = false
   private viewId: number
 
@@ -60,6 +68,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     super(props)
     this.ref = React.createRef<RefType>()
     this.viewId = viewIds++
+    this.isPaused.value = props.paused ?? false
   }
 
   private get handle(): number {
@@ -82,6 +91,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     const token = renderToken.value + 1
     renderToken.value = token
     const isSurfaceAlive = this.isSurfaceAlive
+    const isPaused = this.isPaused
 
     // When requesting to update the render callback we have to assume that the previous one is not valid anymore
     // ie. its pointing to already released resources from useDisposableResource:
@@ -122,7 +132,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
           }
         })
         // Only start after the latest successful call for attaching a listener
-        choreographer.start()
+        if (!isPaused.value) choreographer.start()
         return newListener
       })
     )
@@ -163,6 +173,10 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
   componentDidUpdate(prevProps: Readonly<FilamentProps>): void {
     if (prevProps.enableTransparentRendering !== this.props.enableTransparentRendering) {
       this.updateTransparentRendering(this.props.enableTransparentRendering ?? true)
+    }
+    if (prevProps.paused !== this.props.paused) {
+      if (this.props.paused) this.pause()
+      else this.resume()
     }
     if (prevProps.renderCallback !== this.props.renderCallback && this.swapChain != null) {
       // Note: if swapChain was null, the renderCallback will be set/updated in onSurfaceCreated, which uses the latest renderCallback prop
@@ -323,6 +337,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
    */
   public pause = (): void => {
     Logger.info('Pausing rendering')
+    this.isPaused.value = true
     const { choreographer } = this.getContext()
     choreographer.stop()
   }
@@ -333,6 +348,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
    */
   public resume = (): void => {
     Logger.info('Resuming rendering')
+    this.isPaused.value = false
     const { choreographer } = this.getContext()
     choreographer.start()
   }
