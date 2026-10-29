@@ -56,9 +56,8 @@ void JSurfaceProvider::onSurfaceDestroyed(jni::alias_ref<jobject> javaSurface, j
   {
     // From here on, creating a swapchain for this surface fails.
     std::unique_lock lock(_surfaceMutex);
-    surface = _surface;
     if (_surface != nullptr && _surface->getJavaSurface() == javaSurface) {
-      _surface = nullptr;
+      surface = std::move(_surface);
     }
   }
 
@@ -77,7 +76,11 @@ void JSurfaceProvider::onSurfaceDestroyed(jni::alias_ref<jobject> javaSurface, j
     });
   });
 
-  SurfaceProvider::onSurfaceDestroyed(surface, std::move(releaseGuard));
+  // Listeners only know the tracked surface. If another one is destroyed, the guard is dropped here and Java releases
+  // it right away.
+  if (surface != nullptr) {
+    SurfaceProvider::onSurfaceDestroyed(surface, std::move(releaseGuard));
+  }
 }
 
 std::shared_ptr<Surface> JSurfaceProvider::getSurfaceOrNull() {

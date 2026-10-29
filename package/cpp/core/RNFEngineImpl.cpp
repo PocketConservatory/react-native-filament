@@ -198,6 +198,10 @@ void EngineImpl::setSwapChain(std::shared_ptr<SwapChain> swapChain, std::shared_
 }
 
 void EngineImpl::destroySwapChainOf(const std::shared_ptr<Surface>& surface) {
+  // A null owner would match every swapchain created without one, such as the WebP export swapchain.
+  if (surface == nullptr) {
+    return;
+  }
   std::shared_ptr<SwapChainLifetime> lifetime;
   {
     std::unique_lock lock(_mutex);
