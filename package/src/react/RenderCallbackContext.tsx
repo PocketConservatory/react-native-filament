@@ -14,18 +14,16 @@ let nextCallbackId = 0
  */
 export const runRenderCallbacks = (contextId: number, frameInfo: FrameInfo) => {
   'worklet'
-  const callbacks = global.__rnfRenderCallbacks?.[contextId]
-  if (callbacks == null) return
-  for (const id in callbacks) {
-    callbacks[id]?.(frameInfo)
-  }
+  global.__rnfRenderCallbacks?.[contextId]?.forEach((callback) => callback(frameInfo))
 }
 
 /**
  * In react-native-filament we can only have one render callback, which we provide to the FilamentView.
  * This context allows us to have multiple render callbacks, as we call them in the render callback.
  *
- * The callbacks are kept in a registry on the scene's worklet runtime, keyed by context and callback id.
+ * The callbacks are kept in a registry on the scene's worklet runtime, keyed by context and callback id. Each
+ * context's callbacks are a Map called without a receiver: react-native-worklets-core stores a worklet's closure on
+ * the `this` it is called with, which would add a non-callable `__closure` entry to a plain object registry.
  * Adding and removing them are jobs on that runtime, so they are ordered with everything else scheduled
  * there (like releasing the resources a callback uses).
  */
@@ -73,13 +71,13 @@ export const makeRenderContext = () => {
           'worklet'
           if (global.__rnfRenderCallbacks == null) global.__rnfRenderCallbacks = {}
           const registry = global.__rnfRenderCallbacks
-          if (registry[contextId] == null) registry[contextId] = {}
-          registry[contextId][callbackId] = callback
+          if (registry[contextId] == null) registry[contextId] = new Map()
+          registry[contextId].set(callbackId, callback)
         })
         return () => {
           runOnWorkletContext(workletContext, contextId, () => {
             'worklet'
-            delete global.__rnfRenderCallbacks?.[contextId]?.[callbackId]
+            global.__rnfRenderCallbacks?.[contextId]?.delete(callbackId)
           })
         }
       },
