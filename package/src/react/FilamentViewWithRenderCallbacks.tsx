@@ -1,5 +1,5 @@
 import React, { PropsWithChildren, useCallback } from 'react'
-import { RenderCallbackContext } from './RenderCallbackContext'
+import { RenderCallbackContext, runRenderCallbacks } from './RenderCallbackContext'
 import { FilamentView, PublicNativeProps } from './FilamentView'
 import { RenderCallback } from '../types'
 import { StyleSheet, ViewStyle } from 'react-native'
@@ -18,18 +18,15 @@ export function FilamentViewWithRenderCallbacks({
   renderCallback: renderCallbackProp,
   ...forwardProps
 }: PropsWithChildren<ForwardProps>) {
-  const renderCallbacks = RenderCallbackContext.useRenderCallbacks()
+  const { contextId } = RenderCallbackContext.useRenderContext()
   const renderCallback: RenderCallback = useCallback(
     (frameInfo) => {
       'worklet'
 
       renderCallbackProp?.(frameInfo)
-
-      renderCallbacks.value.forEach(({ callback }) => {
-        callback(frameInfo)
-      })
+      runRenderCallbacks(contextId, frameInfo)
     },
-    [renderCallbackProp, renderCallbacks]
+    [renderCallbackProp, contextId]
   )
 
   return (
