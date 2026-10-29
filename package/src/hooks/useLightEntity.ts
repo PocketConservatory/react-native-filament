@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Entity, LightConfig, LightManager, Scene } from '../types'
-import { ISharedValue } from 'react-native-worklets-core'
+import { ISharedValue, Worklets } from 'react-native-worklets-core'
+import { runOnWorkletContext } from '../ErrorUtils'
+import { RenderCallbackContext } from '../react/RenderCallbackContext'
 import { useFilamentContext } from './useFilamentContext'
 import { useWorkletEffect } from './useWorkletEffect'
 import convertKelvinToLinearSRGB from '../utilities/convertKelvinToLinearSRGB'
@@ -44,11 +46,15 @@ export function useLightEntityInScene(lightManager: LightManager, config: UseLig
 
   const { type, castShadows, colorKelvin: initialColorKelvin, intensity: initialIntensity } = config
   const { workletContext } = useFilamentContext()
-  const [entity, setEntity] = useState<Entity>()
+  const { contextId } = RenderCallbackContext.useRenderContext()
+  // The holder is set while the light exists. It lives on the worklet side, so jobs on the worklet thread can check
+  // it without racing the destroy job.
+  const [light, setLight] = useState<{ entity: Entity; holder: ISharedValue<Entity | undefined> }>()
 
   useEffect(() => {
     let isActive = true
-    const created = workletContext.runAsync(() => {
+    const holder = Worklets.createSharedValue<Entity | undefined>(undefined)
+    runOnWorkletContext(workletContext, contextId, () => {
       'worklet'
       const lightEntity = lightManager.createLightEntity(
         type,
@@ -60,27 +66,35 @@ export function useLightEntityInScene(lightManager: LightManager, config: UseLig
         falloffRadius,
         innerSpotLightCone != null && outerSpotLightCone != null ? [innerSpotLightCone, outerSpotLightCone] : undefined
       )
+      holder.value = lightEntity
       scene?.addEntity(lightEntity)
       return lightEntity
-    })
-    created.then((lightEntity) => {
-      if (isActive) setEntity(lightEntity)
+    }).then((lightEntity) => {
+      if (isActive && lightEntity != null) setLight({ entity: lightEntity, holder })
     })
 
     return () => {
       isActive = false
-      setEntity(undefined)
-      created.then((lightEntity) => {
-        workletContext.runAsync(() => {
+      setLight(undefined)
+      // Queued right away: it runs after the create job, before a replacement light is created and before the scene's
+      // deferred releases.
+      runOnWorkletContext(
+        workletContext,
+        contextId,
+        () => {
           'worklet'
-          // The scene may have released these already when it unmounts together with the light
+          const lightEntity = holder.value
+          if (lightEntity == null) return
+          holder.value = undefined
           if (scene?.isValid) scene.removeEntity(lightEntity)
           if (lightManager.isValid) lightManager.destroy(lightEntity)
-        })
-      })
+        },
+        { ignoreReleased: true }
+      )
     }
   }, [
     castShadows,
+    contextId,
     initialColorKelvin,
     directionX,
     directionY,
@@ -98,10 +112,13 @@ export function useLightEntityInScene(lightManager: LightManager, config: UseLig
     workletContext,
   ])
 
+  const entity = light?.entity
+  const holder = light?.holder
+
   // Subscribe to the intensity shared value
   useWorkletEffect(() => {
     'worklet'
-    if (entity == null) return
+    if (entity == null || holder == null) return
     const intensity = config.intensity
     if (intensity == null) return
     if (typeof intensity === 'number') return
@@ -111,6 +128,8 @@ export function useLightEntityInScene(lightManager: LightManager, config: UseLig
     return intensity.addListener(
       workletContext.createRunAsync(() => {
         'worklet'
+        // The light may have been destroyed after this job was queued
+        if (holder.value == null || !lightManager.isValid) return
         setIntensity(entity, intensity.value)
       })
     )
@@ -119,7 +138,7 @@ export function useLightEntityInScene(lightManager: LightManager, config: UseLig
   // Subscribe to the colorKelvin shared value
   useWorkletEffect(() => {
     'worklet'
-    if (entity == null) return
+    if (entity == null || holder == null) return
     const colorKelvin = config.colorKelvin
     if (colorKelvin == null) return
     if (typeof colorKelvin === 'number') return
@@ -129,6 +148,7 @@ export function useLightEntityInScene(lightManager: LightManager, config: UseLig
     return colorKelvin.addListener(
       workletContext.createRunAsync(() => {
         'worklet'
+        if (holder.value == null || !lightManager.isValid) return
         setColor(entity, convertKelvinToLinearSRGB(colorKelvin.value))
       })
     )
