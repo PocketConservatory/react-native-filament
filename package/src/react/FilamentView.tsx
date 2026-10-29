@@ -174,6 +174,8 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     }
 
     this.renderCallbackListener = listener
+    // resume() skips starting while the listener is in flight, and the add job may have seen the view still paused
+    if (!this.isPaused.value && failedRenderToken.value !== token) choreographer.start()
     Logger.debug('Render callback set!')
   }
 
@@ -384,6 +386,8 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
   public resume = (): void => {
     Logger.info('Resuming rendering')
     this.isPaused.value = false
+    // Without a listener there is nothing to render. A listener that is being added starts the choreographer itself.
+    if (this.renderCallbackListener == null) return
     const { choreographer } = this.getContext()
     choreographer.start()
   }
