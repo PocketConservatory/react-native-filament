@@ -6,8 +6,10 @@
 
 #include "RNFAndroidSurface.h"
 #include "RNFSurfaceProvider.h"
+#include <fbjni/NativeRunnable.h>
 #include <fbjni/fbjni.h>
 #include <jni.h>
+#include <mutex>
 
 namespace margelo {
 
@@ -20,13 +22,15 @@ public:
 
   void onSurfaceCreated(jni::alias_ref<jobject> surface);
   void onSurfaceChanged(jni::alias_ref<jobject> surface, int width, int height);
-  void onSurfaceDestroyed(jni::alias_ref<jobject> surface);
+  void onSurfaceDestroyed(jni::alias_ref<jobject> surface, jni::alias_ref<jni::JRunnable> releaseSurface);
 
   std::shared_ptr<Surface> getSurfaceOrNull() override;
 
 private:
   friend HybridBase;
   jni::global_ref<JSurfaceProvider::javaobject> _javaPart;
+  // Set on the UI thread, read on the render thread when creating a swapchain.
+  std::mutex _surfaceMutex;
   std::shared_ptr<AndroidSurface> _surface;
 
 private:

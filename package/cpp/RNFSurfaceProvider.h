@@ -20,11 +20,16 @@ public:
   using TOnCreate = std::function<void(std::shared_ptr<Surface> surface)>;
   using TOnResize = std::function<void(std::shared_ptr<Surface> surface, int width, int height)>;
   using TOnDestroy = std::function<void(std::shared_ptr<Surface>)>;
+  /**
+   * The platform releases the surface's native resources only once every copy of `releaseGuard` is gone, so a native
+   * listener that still has to stop using the surface on another thread keeps it until it is done.
+   */
+  using TOnDestroyWithGuard = std::function<void(std::shared_ptr<Surface> surface, std::shared_ptr<void> releaseGuard)>;
 
   struct Callbacks {
     std::optional<TOnCreate> onSurfaceCreated;
     std::optional<TOnResize> onSurfaceSizeChanged;
-    std::optional<TOnDestroy> onSurfaceDestroyed;
+    std::optional<TOnDestroyWithGuard> onSurfaceDestroyed;
   };
 
 public:
@@ -43,7 +48,7 @@ public:
 protected:
   void onSurfaceCreated(std::shared_ptr<Surface> callbacks);
   void onSurfaceChanged(std::shared_ptr<Surface> surface, int width, int height);
-  void onSurfaceDestroyed(std::shared_ptr<Surface> surface);
+  void onSurfaceDestroyed(std::shared_ptr<Surface> surface, std::shared_ptr<void> releaseGuard = nullptr);
 
 private:
   std::shared_ptr<ListenerManager<Callbacks>> _listeners = ListenerManager<Callbacks>::create();

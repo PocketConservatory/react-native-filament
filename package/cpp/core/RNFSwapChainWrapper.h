@@ -31,6 +31,12 @@ public:
   bool isDestroyed() const {
     return _destroyed.load();
   }
+  /**
+   * Whether this swapchain renders into the native window owned by `owner`. Render thread only.
+   */
+  bool isOwnedBy(const std::shared_ptr<void>& owner) const {
+    return !_nativeWindowOwner.owner_before(owner) && !owner.owner_before(_nativeWindowOwner);
+  }
 
 private:
   std::shared_ptr<Engine> _engine;
@@ -54,6 +60,10 @@ public:
    * The swapchain, or nullptr if JS released it or native code destroyed it.
    */
   std::shared_ptr<SwapChain> getSwapChainOrNull();
+
+  std::shared_ptr<SwapChainLifetime> getLifetime() {
+    return _lifetime;
+  }
 
 protected:
   bool getIsValid() override;

@@ -37,7 +37,7 @@ void FilamentView::setChoreographer(std::optional<std::shared_ptr<ChoreographerW
       .onSurfaceCreated = std::nullopt,
       .onSurfaceSizeChanged = std::nullopt,
       .onSurfaceDestroyed =
-          [choreographer](std::shared_ptr<Surface> surface) {
+          [choreographer](std::shared_ptr<Surface>, std::shared_ptr<void>) {
             Logger::log(TAG, "Surface destroyed, stopping choreographer.");
             choreographer->stop();
           },

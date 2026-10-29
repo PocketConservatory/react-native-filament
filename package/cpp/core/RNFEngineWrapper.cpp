@@ -97,7 +97,7 @@ std::shared_ptr<SwapChainWrapper> EngineWrapper::createWebPExportSwapChain(int w
 }
 void EngineWrapper::setSwapChain(std::shared_ptr<SwapChainWrapper> swapChainWrapper) {
   std::shared_ptr<SwapChain> swapChain = swapChainWrapper->getSwapChain();
-  pointee()->setSwapChain(swapChain);
+  pointee()->setSwapChain(swapChain, swapChainWrapper->getLifetime());
 }
 void EngineWrapper::setIndirectLight(std::shared_ptr<FilamentBuffer> modelBuffer, std::optional<double> intensity,
                                      std::optional<int> irradianceBands) {

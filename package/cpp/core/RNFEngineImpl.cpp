@@ -135,7 +135,17 @@ void EngineImpl::setSurfaceProvider(std::shared_ptr<SurfaceProvider> surfaceProv
                                               }
                                             });
                                           },
-                                      .onSurfaceDestroyed = std::nullopt};
+                                      .onSurfaceDestroyed =
+                                          [dispatcher, weakSelf](std::shared_ptr<Surface> surface, std::shared_ptr<void> releaseGuard) {
+                                            // Holding releaseGuard until the swapchain is destroyed and flushed keeps the
+                                            // platform from releasing the surface while Filament still uses it.
+                                            dispatcher->runAsync([weakSelf, surface, releaseGuard]() {
+                                              auto sharedThis = weakSelf.lock();
+                                              if (sharedThis != nullptr) {
+                                                sharedThis->destroySwapChainOf(surface);
+                                              }
+                                            });
+                                          }};
   _surfaceListener = surfaceProvider->addOnSurfaceChangedListener(std::move(callback));
 }
 
@@ -180,10 +190,25 @@ std::shared_ptr<SwapChainWrapper> EngineImpl::createWebPExportSwapChain(int widt
                         nullptr);
 }
 
-void EngineImpl::setSwapChain(std::shared_ptr<SwapChain> swapChain) {
+void EngineImpl::setSwapChain(std::shared_ptr<SwapChain> swapChain, std::shared_ptr<SwapChainLifetime> lifetime) {
   std::unique_lock lock(_mutex);
   Logger::log(TAG, "Setting swapchain...");
   _swapChain = swapChain;
+  _swapChainLifetime = lifetime;
+}
+
+void EngineImpl::destroySwapChainOf(const std::shared_ptr<Surface>& surface) {
+  std::shared_ptr<SwapChainLifetime> lifetime;
+  {
+    std::unique_lock lock(_mutex);
+    if (_swapChainLifetime == nullptr || !_swapChainLifetime->isOwnedBy(surface)) {
+      return;
+    }
+    lifetime = std::move(_swapChainLifetime);
+    _swapChain = nullptr;
+  }
+  Logger::log(TAG, "Surface destroyed, destroying its swapchain...");
+  lifetime->destroy();
 }
 
 std::shared_ptr<Renderer> EngineImpl::createRenderer(float displayRefreshRate) {
