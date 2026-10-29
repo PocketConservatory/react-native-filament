@@ -18,11 +18,13 @@ std::shared_ptr<Listener> Choreographer::addOnFrameListener(Choreographer::OnFra
 }
 
 void Choreographer::start() {
+  std::unique_lock lock(_runningMutex);
   _running = true;
   platformStart();
 }
 
 void Choreographer::stop() {
+  std::unique_lock lock(_runningMutex);
   _running = false;
   platformStop();
 }

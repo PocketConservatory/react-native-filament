@@ -38,6 +38,9 @@ private:
   std::shared_ptr<ListenerManager<OnFrameCallback>> _listeners = ListenerManager<OnFrameCallback>::create();
   // The platform may still deliver a frame that was already scheduled when stop() was called.
   std::atomic_bool _running = false;
+  // Keeps _running and the platform state in step across concurrent start()/stop(). onFrame() never takes it, so
+  // stop() may be called from a frame callback.
+  std::mutex _runningMutex;
 
 private:
   static constexpr auto TAG = "Choreographer";

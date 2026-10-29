@@ -27,9 +27,18 @@ public:
     onFrame(timestamp);
   }
 
+  // Plain bool: ThreadSanitizer reports platform calls that start()/stop() do not serialize.
+  bool platformRunning = false;
+
 protected:
-  void platformStart() override {}
-  void platformStop() override {}
+  void platformStart() override {
+    std::this_thread::yield();
+    platformRunning = true;
+  }
+  void platformStop() override {
+    std::this_thread::yield();
+    platformRunning = false;
+  }
 };
 
 int failures = 0;
@@ -91,6 +100,59 @@ void testAddDuringFrame() {
   choreographer.frame(1);
   expect(calls == 1, "a listener added inside a frame callback is not called on the next frame");
   std::puts("PASS add during frame");
+}
+
+// stop() from inside a frame races start()/stop() on another thread, as alpha's pause does (frame worklet and JS).
+// Afterwards, frames must be delivered exactly when the platform is running.
+void testStartStopRace() {
+  constexpr int rounds = 300;
+  constexpr int steps = 500;
+  int mismatches = 0;
+  for (int round = 0; round < rounds; round++) {
+    FakeChoreographer choreographer;
+    long calls = 0;
+    auto counter = choreographer.addOnFrameListener([&](double) { calls++; });
+    auto stopper = choreographer.addOnFrameListener([&](double timestamp) {
+      if (static_cast<long>(timestamp) % 3 == 0) {
+        choreographer.stop();
+      }
+    });
+    choreographer.start();
+    std::atomic_int ready = 0;
+    auto waitForBoth = [&] {
+      ready++;
+      while (ready < 2) {
+      }
+    };
+    std::thread frameThread([&] {
+      waitForBoth();
+      for (int i = 0; i < steps; i++) {
+        choreographer.frame(i);
+      }
+    });
+    std::thread toggleThread([&, round] {
+      std::mt19937 random(round);
+      waitForBoth();
+      for (int i = 0; i < steps; i++) {
+        if (random() % 2 == 0) {
+          choreographer.start();
+        } else {
+          choreographer.stop();
+        }
+      }
+    });
+    frameThread.join();
+    toggleThread.join();
+    stopper->remove();
+    long before = calls;
+    choreographer.frame(1);
+    bool delivered = calls > before;
+    if (delivered != choreographer.platformRunning) {
+      mismatches++;
+    }
+  }
+  expect(mismatches == 0, "start()/stop() left the running flag and the platform out of step");
+  std::printf("PASS start/stop race (%d/%d rounds out of step)\n", mismatches, rounds);
 }
 
 void testRaces() {
@@ -197,6 +259,7 @@ int main() {
   testNoFramesAfterStop();
   testRemoveDuringFrame();
   testAddDuringFrame();
+  testStartStopRace();
   testRaces();
   if (failures > 0) {
     std::fprintf(stderr, "%d failure(s)\n", failures);
