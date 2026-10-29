@@ -50,6 +50,19 @@ Do not use a direct Git dependency: upstream tracks neither native static librar
 
 On macOS, compile `tools/tests/apple-file-loader.mm` with `xcrun clang++`, C++17, ARC, and the Foundation framework, then run the resulting executable. It exercises the production file loader against real file URLs containing spaces, Unicode, and literal percent escapes, plus ordinary and missing files.
 
+## Choreographer race test
+
+`tools/tests/choreographer-race.cpp` links the real `RNFChoreographer.cpp`, `RNFListener.cpp` and `RNFListenerManager.h` with only the platform start/stop faked. It checks that no frame is delivered after `stop()` and that listeners may remove themselves during a frame, then runs frames on one thread while others add, remove and destroy listeners, call `removeAllListeners()` and toggle `start()`/`stop()`. Build and run it under ThreadSanitizer on macOS, with `RN` pointing at an installed `react-native` package (for the JSI sources):
+
+```sh
+xcrun clang++ -std=c++17 -fsanitize=thread -g -O1 -Ipackage/cpp -I"$RN/ReactCommon/jsi" \
+  tools/tests/choreographer-race.cpp package/cpp/RNFChoreographer.cpp package/cpp/RNFListener.cpp \
+  package/cpp/jsi/RNFHybridObject.cpp package/cpp/jsi/RNFWorkletRuntimeRegistry.cpp "$RN/ReactCommon/jsi/jsi/jsi.cpp" \
+  -o /tmp/choreographer-race && /tmp/choreographer-race
+```
+
+It must print `All choreographer tests passed` with no ThreadSanitizer warnings.
+
 ## Maintenance
 
 Submit generally useful fixes upstream as separate changes. On an upstream upgrade, compare the fork commits against the new release, remove merged fixes, update the pinned npm version and integrity in the builder, and rerun Android/iOS app validation. On a Filament upgrade, update the pinned commit in `tools/filament-engine/build.py` and the release builder, port the Animator patch, bump the `filament` submodule, rebuild both engines and replace the tracked headers. Applications must ship materials compiled for the bundled material version.
