@@ -12,7 +12,7 @@ export function useCameraManipulator({
   upVector = cameraUp,
   ...config
 }: OrbitCameraManipulatorConfig) {
-  const { engine } = useFilamentContext()
+  const { engine, workletContext } = useFilamentContext()
 
   const orbitHomePositionX = orbitHomePosition[0]
   const orbitHomePositionY = orbitHomePosition[1]
@@ -27,36 +27,40 @@ export function useCameraManipulator({
   const orbitSpeedX = config.orbitSpeed?.[0]
   const orbitSpeedY = config.orbitSpeed?.[1]
 
-  const cameraManipulator = useDisposableResource(() => {
-    const localConfig: OrbitCameraManipulatorConfig = {
-      orbitHomePosition: [orbitHomePositionX, orbitHomePositionY, orbitHomePositionZ],
-      targetPosition: [targetPositionX, targetPositionY, targetPositionZ],
-      upVector: [upVectorX, upVectorY, upVectorZ],
-    }
+  const cameraManipulator = useDisposableResource(
+    () => {
+      const localConfig: OrbitCameraManipulatorConfig = {
+        orbitHomePosition: [orbitHomePositionX, orbitHomePositionY, orbitHomePositionZ],
+        targetPosition: [targetPositionX, targetPositionY, targetPositionZ],
+        upVector: [upVectorX, upVectorY, upVectorZ],
+      }
 
-    if (zoomSpeed != null) {
-      localConfig.zoomSpeed = [zoomSpeed]
-    }
-    if (orbitSpeedX != null && orbitSpeedY != null) {
-      localConfig.orbitSpeed = [orbitSpeedX, orbitSpeedY]
-    }
+      if (zoomSpeed != null) {
+        localConfig.zoomSpeed = [zoomSpeed]
+      }
+      if (orbitSpeedX != null && orbitSpeedY != null) {
+        localConfig.orbitSpeed = [orbitSpeedX, orbitSpeedY]
+      }
 
-    return Promise.resolve(engine.createOrbitCameraManipulator(localConfig))
-  }, [
-    engine,
-    orbitHomePositionX,
-    orbitHomePositionY,
-    orbitHomePositionZ,
-    orbitSpeedX,
-    orbitSpeedY,
-    targetPositionX,
-    targetPositionY,
-    targetPositionZ,
-    upVectorX,
-    upVectorY,
-    upVectorZ,
-    zoomSpeed,
-  ])
+      return Promise.resolve(engine.createOrbitCameraManipulator(localConfig))
+    },
+    [
+      engine,
+      orbitHomePositionX,
+      orbitHomePositionY,
+      orbitHomePositionZ,
+      orbitSpeedX,
+      orbitSpeedY,
+      targetPositionX,
+      targetPositionY,
+      targetPositionZ,
+      upVectorX,
+      upVectorY,
+      upVectorZ,
+      zoomSpeed,
+    ],
+    workletContext
+  )
 
   return cameraManipulator
 }

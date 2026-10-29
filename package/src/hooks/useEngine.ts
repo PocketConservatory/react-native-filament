@@ -29,6 +29,6 @@ export function useEngine({ backend, config, context, exportMode }: EngineProps)
       : FilamentProxy.createEngine(backend ?? undefined, config ?? undefined)
   })
 
-  const engine = useDisposableResource(createEngine)
+  const engine = useDisposableResource(createEngine, undefined, context)
   return engine
 }

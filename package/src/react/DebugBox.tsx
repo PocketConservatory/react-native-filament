@@ -1,10 +1,12 @@
-import { useContext, useMemo } from 'react'
+import { useContext, useEffect, useMemo } from 'react'
 import { useFilamentContext } from '../hooks/useFilamentContext'
 import { Float3 } from '../types'
 import { TransformationProps } from '../types/TransformProps'
 import { useApplyTransformations } from '../hooks/internal/useApplyTransformations'
 import { ParentInstancesContext } from './ParentInstancesContext'
 import { useEntityInScene } from '../hooks/useEntityInScene'
+import { runOnWorkletContext } from '../ErrorUtils'
+import { RenderCallbackContext } from './RenderCallbackContext'
 
 export type DebugBoxProps = TransformationProps & {
   halfExtent?: Float3
@@ -20,7 +22,8 @@ export function DebugBox({ halfExtent: halfExtentProp, ...transformProps }: Debu
 
   const halfExtent = halfExtentProp ?? parentHalfExtend
 
-  const { renderableManager, scene } = useFilamentContext()
+  const { renderableManager, scene, workletContext } = useFilamentContext()
+  const { contextId } = RenderCallbackContext.useRenderContext()
   const boxEntity = useMemo(() => {
     if (halfExtent == null) return null
 
@@ -31,6 +34,20 @@ export function DebugBox({ halfExtent: halfExtentProp, ...transformProps }: Debu
   useApplyTransformations({ to: boxEntity, transformProps })
 
   useEntityInScene(scene, boxEntity ?? undefined)
+  useEffect(() => {
+    if (boxEntity == null) return
+    return () => {
+      runOnWorkletContext(
+        workletContext,
+        contextId,
+        () => {
+          'worklet'
+          renderableManager.destroyEntity(boxEntity)
+        },
+        { ignoreReleased: true }
+      )
+    }
+  }, [boxEntity, contextId, renderableManager, workletContext])
 
   return null
 }

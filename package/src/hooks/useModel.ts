@@ -63,28 +63,32 @@ export function useModel(source: BufferSource, props?: UseModelConfigParams): Fi
   const assetBuffer = useBuffer({ source: source, releaseOnUnmount: false })
 
   // Note: the native cleanup of the asset will remove it automatically from the scene
-  const asset = useDisposableResource(() => {
-    if (assetBuffer == null) return
-    if (instanceCount === 0) {
-      throw new Error('instanceCount must be greater than 0')
-    }
-
-    return workletContext.runAsync(() => {
-      'worklet'
-
-      let loadedAsset: FilamentAsset
-      if (instanceCount == null || instanceCount === 1) {
-        loadedAsset = engine.loadAsset(assetBuffer)
-      } else {
-        loadedAsset = engine.loadInstancedAsset(assetBuffer, instanceCount)
+  const asset = useDisposableResource(
+    () => {
+      if (assetBuffer == null) return
+      if (instanceCount === 0) {
+        throw new Error('instanceCount must be greater than 0')
       }
 
-      // After loading the asset we can release the buffer
-      assetBuffer.release()
+      return workletContext.runAsync(() => {
+        'worklet'
 
-      return loadedAsset
-    })
-  }, [assetBuffer, workletContext, engine, instanceCount])
+        let loadedAsset: FilamentAsset
+        if (instanceCount == null || instanceCount === 1) {
+          loadedAsset = engine.loadAsset(assetBuffer)
+        } else {
+          loadedAsset = engine.loadInstancedAsset(assetBuffer, instanceCount)
+        }
+
+        // After loading the asset we can release the buffer
+        assetBuffer.release()
+
+        return loadedAsset
+      })
+    },
+    [assetBuffer, workletContext, engine, instanceCount],
+    workletContext
+  )
 
   useWorkletEffect(() => {
     'worklet'

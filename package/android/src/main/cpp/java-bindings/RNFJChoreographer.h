@@ -15,9 +15,11 @@ class JChoreographer : public jni::HybridClass<JChoreographer>, public Choreogra
 public:
   static void registerNatives();
 
-  void start() override;
-  void stop() override;
   void onFrameLong(jlong timestamp);
+
+protected:
+  void platformStart() override;
+  void platformStop() override;
 
 private:
   friend HybridBase;

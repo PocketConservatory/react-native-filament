@@ -1,8 +1,18 @@
 import { DependencyList, useEffect, useState } from 'react'
 import { withCleanupScope } from '../utilities/withCleanupScope'
 import { PointerHolder } from '../types/PointerHolder'
+import type { IWorkletContext } from 'react-native-worklets-core'
 
 type ReleasingResource = Pick<PointerHolder, 'release'>
+
+function releaseOnContext(resource: ReleasingResource, workletContext: IWorkletContext) {
+  withCleanupScope(() => {
+    'worklet'
+    // The resource may have been released natively or by another owner meanwhile
+    if ((resource as Partial<PointerHolder>).isValid === false) return
+    resource.release()
+  }, workletContext)()
+}
 
 const emptyStaticArray: DependencyList = []
 
@@ -13,10 +23,14 @@ const emptyStaticArray: DependencyList = []
  * There are certain cases like "fast refresh" or StrictMode that make useEffects execute
  * multiple times. Also loading the resource can be async and this hooks handles all these
  * cases properly.
+ *
+ * @param workletContext When given, the resource is released on this context (after already queued jobs), which
+ * should be the context that uses it. Otherwise it is released on the JS thread.
  */
 export const useDisposableResource = <T extends ReleasingResource>(
   initialize: () => Promise<T | undefined> | undefined,
-  deps?: DependencyList
+  deps?: DependencyList,
+  workletContext?: IWorkletContext
 ): T | undefined => {
   const [resource, setResource] = useState<T>()
 
@@ -32,7 +46,8 @@ export const useDisposableResource = <T extends ReleasingResource>(
         currentAsset = a
       } else {
         // this useEffect has been unmounted already, drop the asset
-        a.release()
+        if (workletContext != null) releaseOnContext(a, workletContext)
+        else a.release()
       }
     })
     // TODO: catch is broken
@@ -42,9 +57,15 @@ export const useDisposableResource = <T extends ReleasingResource>(
     return () => {
       setResource(undefined)
       isValid = false
-      withCleanupScope(() => {
-        currentAsset?.release()
-      })()
+      if (currentAsset == null) return
+      if (workletContext != null) {
+        releaseOnContext(currentAsset, workletContext)
+      } else {
+        const asset = currentAsset
+        withCleanupScope(() => {
+          asset.release()
+        })()
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps ?? emptyStaticArray)

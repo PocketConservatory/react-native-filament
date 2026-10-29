@@ -5,6 +5,9 @@ import { useWorkletCallback } from '../hooks/useWorkletCallback'
 import { useWorkletMemo } from '../hooks/useWorkletMemo'
 import { Mat3f } from '../types'
 import { useFilamentContext } from '../hooks/useFilamentContext'
+import { useEffect } from 'react'
+import { runOnWorkletContext } from '../ErrorUtils'
+import { RenderCallbackContext } from './RenderCallbackContext'
 
 export type BackgroundImageProps = {
   source: BufferSource
@@ -13,7 +16,8 @@ export type BackgroundImageProps = {
 }
 
 export function BackgroundImage({ source, materialSource, resizeMode = 'contain' }: BackgroundImageProps) {
-  const { engine, renderableManager, scene, view } = useFilamentContext()
+  const { engine, renderableManager, scene, view, workletContext } = useFilamentContext()
+  const { contextId } = RenderCallbackContext.useRenderContext()
 
   // Create the material which will be used to render the image
   const imageMaterialBuffer = useBuffer({ source: materialSource })
@@ -97,7 +101,8 @@ export function BackgroundImage({ source, materialSource, resizeMode = 'contain'
 
       return newMaterial
     }),
-    [engine, imageMaterialBuffer, imageBuffer]
+    [engine, imageMaterialBuffer, imageBuffer],
+    workletContext
   )
 
   // Create the geometric shape (a plane)
@@ -109,6 +114,22 @@ export function BackgroundImage({ source, materialSource, resizeMode = 'contain'
     return renderableManager.createImageBackgroundShape(material)
   }, [material, renderableManager])
   useEntityInScene(scene, entity)
+  // Registered after useEntityInScene so the entity leaves the scene before it is destroyed,
+  // and destroyed before the deferred material release runs.
+  useEffect(() => {
+    if (entity == null) return
+    return () => {
+      runOnWorkletContext(
+        workletContext,
+        contextId,
+        () => {
+          'worklet'
+          renderableManager.destroyEntity(entity)
+        },
+        { ignoreReleased: true }
+      )
+    }
+  }, [contextId, entity, renderableManager, workletContext])
 
   return null
 }

@@ -51,7 +51,10 @@ void RendererWrapper::setPresentationTime(double timestamp) {
 }
 
 bool RendererWrapper::beginFrame(std::shared_ptr<SwapChainWrapper> swapChainWrapper, double timestamp) {
-  std::shared_ptr<SwapChain> swapChain = swapChainWrapper->getSwapChain();
+  std::shared_ptr<SwapChain> swapChain = swapChainWrapper->getSwapChainOrNull();
+  if (swapChain == nullptr) {
+    return false;
+  }
   return pointee()->beginFrame(swapChain.get(), timestamp);
 }
 

@@ -1,15 +1,18 @@
 import { useEffect } from 'react'
 import { useFilamentContext } from './useFilamentContext'
 import { getWorkletDependencies, isWorklet } from 'react-native-worklets-core'
-import { wrapWithErrorHandler } from '../ErrorUtils'
+import { runOnWorkletContext, wrapWithErrorHandler } from '../ErrorUtils'
+import { RenderCallbackContext } from '../react/RenderCallbackContext'
 
 type CleanupFn = () => void
 
 export function useWorkletEffect(workletFunction: () => CleanupFn | void) {
   const { workletContext } = useFilamentContext()
+  const { contextId } = RenderCallbackContext.useRenderContext()
 
   useEffect(() => {
-    const cleanupPromise = workletContext.runAsync(wrapWithErrorHandler(workletFunction))
+    // Errors are reported by wrapWithErrorHandler, don't report the rejection again
+    const cleanupPromise = workletContext.runAsync(wrapWithErrorHandler(workletFunction, contextId)).catch(() => undefined)
     return () => {
       cleanupPromise.then((cleanup): void => {
         if (cleanup == null || typeof cleanup !== 'function') {
@@ -18,7 +21,7 @@ export function useWorkletEffect(workletFunction: () => CleanupFn | void) {
         }
         if (isWorklet(cleanup)) {
           // call cleanup function on Worklet context
-          workletContext.runAsync(cleanup)
+          runOnWorkletContext(workletContext, contextId, cleanup, { ignoreReleased: true })
         } else {
           // call normal cleanup JS function on normal context
           cleanup()

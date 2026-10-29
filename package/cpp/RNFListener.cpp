@@ -21,11 +21,11 @@ void Listener::loadHybridMethods() {
 }
 
 void Listener::remove() {
-  if (_isRemoved) {
+  // JS, worklet and GC threads may remove the same listener concurrently.
+  if (_isRemoved.exchange(true)) {
     return;
   }
   _remove();
-  _isRemoved = true;
 }
 
 std::shared_ptr<Listener> Listener::create(ListenerRemover&& remover) {

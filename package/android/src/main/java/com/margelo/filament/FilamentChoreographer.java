@@ -19,7 +19,9 @@ public class FilamentChoreographer {
     @Keep
     private final HybridData mHybridData;
     private final Choreographer choreographer;
-    private boolean isRunning;
+    // Keep one callback instance: a new method reference per call would make removeFrameCallback() a no-op.
+    private final Choreographer.FrameCallback frameCallback = this::onFrameCallback;
+    private volatile boolean isRunning;
 
     public FilamentChoreographer() {
         mHybridData = initHybrid();
@@ -29,7 +31,14 @@ public class FilamentChoreographer {
     private void onFrameCallback(long timestamp) {
         if (!isRunning) return;
         onFrame(timestamp);
-        choreographer.postFrameCallback(this::onFrameCallback);
+        postNextFrame();
+    }
+
+    // Removing first guarantees a single pending callback, even when start() raced with a running frame.
+    private synchronized void postNextFrame() {
+        if (!isRunning) return;
+        choreographer.removeFrameCallback(frameCallback);
+        choreographer.postFrameCallback(frameCallback);
     }
 
     /**
@@ -40,7 +49,7 @@ public class FilamentChoreographer {
     private synchronized void start() {
         if (!isRunning) {
             isRunning = true;
-            choreographer.postFrameCallback(this::onFrameCallback);
+            postNextFrame();
             Log.d("FilamentChoreographer", "Started choreographer!");
         }
     }
@@ -53,7 +62,7 @@ public class FilamentChoreographer {
     private synchronized void stop() {
         if (isRunning) {
             isRunning = false;
-            choreographer.removeFrameCallback(this::onFrameCallback);
+            choreographer.removeFrameCallback(frameCallback);
             Log.d("FilamentChoreographer", "Stopped choreographer!");
         }
     }

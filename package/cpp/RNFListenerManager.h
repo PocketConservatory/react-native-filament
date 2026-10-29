@@ -6,7 +6,6 @@
 
 #include "RNFListener.h"
 #include <algorithm>
-#include <atomic>
 #include <functional>
 #include <list>
 #include <memory>
@@ -16,12 +15,17 @@ namespace margelo {
 
 template <typename Callback> class ListenerManager : public std::enable_shared_from_this<ListenerManager<Callback>> {
 private:
-  std::list<Callback> _listeners;
+  struct Entry {
+    Callback callback;
+    bool isRemoved = false;
+  };
+  std::list<Entry> _listeners;
   // recursive mutex allows listeners to be removed within their actual callback.
   std::recursive_mutex _mutex;
-  // this holds the amount of listeners that were just removed.
-  // this is used to allow listeners to be "automagically" removed within the forEach loop.
-  std::atomic_size_t _removedListenersCount;
+  // While forEach() runs, removed entries are only marked, so the loop's iterator stays valid. They are erased once
+  // the outermost loop is done.
+  size_t _iterationDepth = 0;
+  bool _hasRemovedListeners = false;
 
 public:
   /**
@@ -34,7 +38,7 @@ public:
   std::shared_ptr<Listener> add(Callback listener) {
     std::unique_lock lock(_mutex);
 
-    _listeners.push_back(std::move(listener));
+    _listeners.push_back(Entry{.callback = std::move(listener)});
     auto id = --_listeners.end();
 
     auto weakThis = std::weak_ptr<ListenerManager<Callback>>(shared());
@@ -42,8 +46,12 @@ public:
       auto sharedThis = weakThis.lock();
       if (sharedThis) {
         std::unique_lock lock(sharedThis->_mutex);
-        sharedThis->_listeners.erase(id);
-        sharedThis->_removedListenersCount++;
+        if (sharedThis->_iterationDepth > 0) {
+          id->isRemoved = true;
+          sharedThis->_hasRemovedListeners = true;
+        } else {
+          sharedThis->_listeners.erase(id);
+        }
       }
     });
   }
@@ -52,23 +60,29 @@ public:
 
   /**
    * Iterate through all listeners.
-   * This method is thread-safe.
+   * This method is thread-safe. Listeners may be added or removed from within the callback.
    * @param callback The callback to run for each listener.
    */
   void forEach(std::function<LoopCallback>&& callback) {
     std::unique_lock lock(_mutex);
 
-    _removedListenersCount = 0;
-    for (auto iterator = _listeners.begin(); iterator != _listeners.end(); /* increment done manually */) {
-      const auto& listener = *iterator;
-      callback(listener);
+    // Also runs when a callback throws.
+    struct IterationScope {
+      ListenerManager& manager;
+      explicit IterationScope(ListenerManager& manager) : manager(manager) {
+        manager._iterationDepth++;
+      }
+      ~IterationScope() {
+        if (--manager._iterationDepth == 0 && manager._hasRemovedListeners) {
+          manager._listeners.remove_if([](const Entry& entry) { return entry.isRemoved; });
+          manager._hasRemovedListeners = false;
+        }
+      }
+    } scope(*this);
 
-      if (_removedListenersCount > 0) {
-        // do not increment iterator as one (or more) Listeners were just removed.
-        _removedListenersCount--;
-      } else {
-        // no Listeners were removed, we go to the next item in the list
-        iterator++;
+    for (auto& entry : _listeners) {
+      if (!entry.isRemoved) {
+        callback(entry.callback);
       }
     }
   }
@@ -76,7 +90,7 @@ public:
   bool getHasListeners() {
     std::unique_lock lock(_mutex);
 
-    return _listeners.size() > 0;
+    return std::any_of(_listeners.begin(), _listeners.end(), [](const Entry& entry) { return !entry.isRemoved; });
   }
 
 private:

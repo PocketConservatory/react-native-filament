@@ -27,7 +27,7 @@ protected:
 private: // Exposed JS API
   void start();
   void stop();
-  std::shared_ptr<Listener> addFrameCallbackListener(RenderCallback onFrameCallback);
+  jsi::Value addFrameCallbackListener(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* args, size_t count);
   void release() override;
 
 private: // Internal

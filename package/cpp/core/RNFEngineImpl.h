@@ -16,6 +16,7 @@
 #include "RNFRenderableManagerWrapper.h"
 #include "RNFSurface.h"
 #include "RNFSurfaceProvider.h"
+#include "RNFSwapChainWrapper.h"
 #include "RNFTransformManagerWrapper.h"
 #include "bullet/RNFRigidBodyWrapper.h"
 #include "core/utils/RNFEntityWrapper.h"
@@ -50,9 +51,13 @@ public:
 
   // First a surface provider must be set, then once we have a surface a swapchain can be created and finally the swapchain can be set
   void setSurfaceProvider(std::shared_ptr<SurfaceProvider> surfaceProvider);
-  std::shared_ptr<SwapChain> createSwapChain(void* nativeWindow, u_int64_t flags);
-  std::shared_ptr<SwapChain> createWebPExportSwapChain(int width, int height);
-  void setSwapChain(std::shared_ptr<SwapChain> swapChain);
+  /**
+   * `nativeWindowOwner` is kept alive until Filament has destroyed the swapchain, so the native window
+   * (Surface, recorder) cannot be released while the backend still holds it.
+   */
+  std::shared_ptr<SwapChainWrapper> createSwapChain(void* nativeWindow, u_int64_t flags, std::shared_ptr<void> nativeWindowOwner = nullptr);
+  std::shared_ptr<SwapChainWrapper> createWebPExportSwapChain(int width, int height);
+  void setSwapChain(std::shared_ptr<SwapChain> swapChain, std::shared_ptr<SwapChainLifetime> lifetime);
   void surfaceSizeChanged(int width, int height);
 
   void setIndirectLight(std::shared_ptr<FilamentBuffer> modelBuffer, std::optional<double> intensity, std::optional<int> irradianceBands);
@@ -88,6 +93,7 @@ private:
   float _densityPixelRatio;
   std::shared_ptr<Renderer> _renderer;
   std::shared_ptr<SwapChain> _swapChain;
+  std::shared_ptr<SwapChainLifetime> _swapChainLifetime;
   std::shared_ptr<Scene> _scene;
   std::shared_ptr<View> _view;
   std::shared_ptr<Camera> _camera;
@@ -103,6 +109,8 @@ private:
   std::shared_ptr<Camera> createCamera();
   // Internal helper method to turn an FilamentAsset ptr into a FilamentAssetWrapper
   std::shared_ptr<FilamentAssetWrapper> makeAssetWrapper(FilamentAsset* assetPtr);
+  std::shared_ptr<SwapChainWrapper> adoptSwapChain(SwapChain* swapChain, std::shared_ptr<void> nativeWindowOwner);
+  void destroySwapChainOf(const std::shared_ptr<Surface>& surface);
 
 private:
   static constexpr auto TAG = "EngineImpl";

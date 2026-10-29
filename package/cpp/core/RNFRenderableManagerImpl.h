@@ -8,6 +8,7 @@
 #include "RNFFilamentBuffer.h"
 #include "RNFMaterialInstanceWrapper.h"
 #include "RNFMaterialWrapper.h"
+#include "RNFReferences.h"
 #include "VertexEntity.h"
 #include "core/utils/RNFEntityWrapper.h"
 #include "jsi/RNFPointerHolder.h"
@@ -30,7 +31,11 @@ class RenderableManagerImpl {
 public:
   explicit RenderableManagerImpl(std::shared_ptr<Engine> engine, std::shared_ptr<Dispatcher> rendererDispatcher)
       : _engine(engine), _rendererDispatcher(rendererDispatcher) {
-    _textureProvider = std::shared_ptr<TextureProvider>(filament::gltfio::createStbProvider(_engine.get()));
+    // Deleted on the render thread, see the resource loader in EngineImpl.
+    _textureProvider = References<TextureProvider>::adoptRef(filament::gltfio::createStbProvider(_engine.get()),
+                                                             [engine, rendererDispatcher](TextureProvider* provider) {
+                                                               rendererDispatcher->runAsync([engine, provider]() { delete provider; });
+                                                             });
   }
 
 public: // Public API
@@ -63,6 +68,7 @@ public: // Public API
   std::shared_ptr<EntityWrapper> createPlane(std::shared_ptr<MaterialWrapper> materialWrapper, double halfExtendX, double halfExtendY,
                                              double halfExtendZ);
   VertexEntity createImageBackground(MaterialInstance* materialInstance);
+  void destroyEntity(std::shared_ptr<EntityWrapper> entityWrapper);
   std::shared_ptr<EntityWrapper> createDebugCubeWireframe(float halfExtentX, float halfExtentY, float halfExtentZ,
                                                           std::optional<std::shared_ptr<MaterialWrapper>> materialWrapper,
                                                           std::optional<double> colorHexCode);

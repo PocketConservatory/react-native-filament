@@ -7,12 +7,24 @@ import React from 'react'
 import { Configurator, RendererConfigProps, ViewConfigProps } from './Configurator'
 import { FilamentContext, FilamentContextType } from '../hooks/useFilamentContext'
 import { RenderCallbackContext } from './RenderCallbackContext'
+import { FilamentErrorHandler } from '../ErrorUtils'
 
 export type FilamentProviderProps = PropsWithChildren<
   Omit<EngineProps, 'context'> &
     ViewConfigProps &
     RendererConfigProps & {
       fallback?: React.ReactElement
+      /**
+       * Receives errors from the scene's worklets and render loop on the JS thread, e.g. to show a fallback.
+       *
+       * - Without a handler, errors are reported as fatal errors, as without this prop.
+       * - With a handler, errors go to the handler and are not fatal. An error in the render loop stops rendering
+       *   and is reported once.
+       * - Errors from using an already released object during teardown are dropped.
+       * - Once a handler was set, the scene's errors stay non-fatal after it is removed, as errors can still
+       *   arrive after unmount. They are then reported with `ErrorUtils.reportError`.
+       */
+      onError?: FilamentErrorHandler
     }
 >
 
@@ -52,6 +64,7 @@ export function FilamentScene({
   backend,
   frameRateOptions,
   exportMode = false,
+  onError,
   ...viewProps
 }: FilamentProviderProps) {
   // First create the engine, which we need to create (almost) all other filament APIs
@@ -59,21 +72,23 @@ export function FilamentScene({
   const engine = useEngine({ config, backend, context: workletContext, exportMode })
 
   // Create all Filament APIs using the engine
-  const transformManager = useDisposableResource(() => Promise.resolve(engine?.createTransformManager()), [engine])
-  const renderableManager = useDisposableResource(() => Promise.resolve(engine?.createRenderableManager()), [engine])
-  const scene = useDisposableResource(() => Promise.resolve(engine?.getScene()), [engine])
-  const lightManager = useDisposableResource(() => Promise.resolve(engine?.createLightManager()), [engine])
-  const view = useDisposableResource(() => Promise.resolve(engine?.getView()), [engine])
-  const camera = useDisposableResource(() => Promise.resolve(engine?.getCamera()), [engine])
-  const renderer = useDisposableResource(() => Promise.resolve(engine?.createRenderer()), [engine])
-  const nameComponentManager = useDisposableResource(() => Promise.resolve(engine?.createNameComponentManager()), [engine])
+  const transformManager = useDisposableResource(() => Promise.resolve(engine?.createTransformManager()), [engine], workletContext)
+  const renderableManager = useDisposableResource(() => Promise.resolve(engine?.createRenderableManager()), [engine], workletContext)
+  const scene = useDisposableResource(() => Promise.resolve(engine?.getScene()), [engine], workletContext)
+  const lightManager = useDisposableResource(() => Promise.resolve(engine?.createLightManager()), [engine], workletContext)
+  const view = useDisposableResource(() => Promise.resolve(engine?.getView()), [engine], workletContext)
+  const camera = useDisposableResource(() => Promise.resolve(engine?.getCamera()), [engine], workletContext)
+  const renderer = useDisposableResource(() => Promise.resolve(engine?.createRenderer()), [engine], workletContext)
+  const nameComponentManager = useDisposableResource(() => Promise.resolve(engine?.createNameComponentManager()), [engine], workletContext)
 
   // Create a choreographer for this context tree
   const choreographer = useDisposableResource(
     useWorklet(workletContext, () => {
       'worklet'
       return FilamentProxy.createChoreographer()
-    })
+    }),
+    undefined,
+    workletContext
   )
 
   // Construct the context object value:
@@ -127,7 +142,7 @@ export function FilamentScene({
   return (
     <FilamentContext.Provider value={value}>
       <Configurator rendererProps={rendererProps} viewProps={viewProps}>
-        <RenderCallbackContext.RenderContextProvider>{children}</RenderCallbackContext.RenderContextProvider>
+        <RenderCallbackContext.RenderContextProvider onError={onError}>{children}</RenderCallbackContext.RenderContextProvider>
       </Configurator>
     </FilamentContext.Provider>
   )

@@ -1,7 +1,7 @@
 import React from 'react'
 import { FilamentProxy } from '../native/FilamentProxy'
 import FilamentNativeView, { type FilamentViewNativeType, type NativeProps } from '../native/specs/FilamentViewNativeComponent'
-import { reportWorkletError, wrapWithErrorHandler } from '../ErrorUtils'
+import { isReleasedPointerError, NO_CONTEXT_ID, reportWorkletError, runOnWorkletContext } from '../ErrorUtils'
 import { FilamentContext } from '../hooks/useFilamentContext'
 import { RenderCallback, SwapChain } from 'react-native-filament'
 import type { SurfaceProvider, FilamentView as RNFFilamentView } from '../native/FilamentViewTypes'
@@ -22,6 +22,19 @@ export interface FilamentProps extends PublicNativeProps {
    * @note Don't call any methods on `engine` here - this will lead to deadlocks!
    */
   renderCallback: RenderCallback
+  /**
+   * Whether rendering is paused. While paused, the view neither renders nor restarts rendering when its surface
+   * is recreated or its render callback changes. Same as calling {@linkcode FilamentView.pause}/{@linkcode FilamentView.resume}.
+   *
+   * @default false
+   */
+  paused?: boolean
+  /**
+   * The id of the render context (see `useRenderContext().contextId`) whose `onError` handlers receive this view's
+   * errors.
+   * @internal
+   */
+  contextId?: number
 }
 
 type RefType = InstanceType<FilamentViewNativeType>
@@ -41,6 +54,13 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
   // There is a race condition where the surface might be destroyed before the swapchain is created.
   // For this we keep track of the surface state:
   private isSurfaceAlive = Worklets.createSharedValue(true)
+  // Bumped for every surface created or destroyed, so work started for an older surface can tell it is stale
+  private surfaceGeneration = 0
+  // Only the frame listener added for the latest token renders; bumping it silences older listeners at once
+  private renderToken = Worklets.createSharedValue(0)
+  private isPaused = Worklets.createSharedValue(false)
+  // The render token whose frame listener threw. Its listener stops rendering, so the error is reported once.
+  private failedRenderToken = Worklets.createSharedValue(-1)
   private isComponentMounted = false
   private viewId: number
 
@@ -56,6 +76,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     super(props)
     this.ref = React.createRef<RefType>()
     this.viewId = viewIds++
+    this.isPaused.value = props.paused ?? false
   }
 
   private get handle(): number {
@@ -72,71 +93,90 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     renderer.setClearContent(enable)
   }
 
-  private latestToken = 0
   private updateRenderCallback = async (callback: RenderCallback, swapChain: SwapChain) => {
-    const currentToken = ++this.latestToken
     const { renderer, view, workletContext, choreographer } = this.getContext()
+    const renderToken = this.renderToken
+    const token = renderToken.value + 1
+    renderToken.value = token
+    const isSurfaceAlive = this.isSurfaceAlive
+    const isPaused = this.isPaused
+    const failedRenderToken = this.failedRenderToken
+    const contextId = this.props.contextId ?? NO_CONTEXT_ID
 
     // When requesting to update the render callback we have to assume that the previous one is not valid anymore
     // ie. its pointing to already released resources from useDisposableResource:
-    this.renderCallbackListener?.remove()
+    const previousListener = this.renderCallbackListener
+    this.renderCallbackListener = undefined
 
     // Adding a new render callback listener is an async operation
     Logger.debug('Setting render callback')
-    const listener = await workletContext.runAsync(
-      wrapWithErrorHandler(() => {
-        'worklet'
+    const listener = await workletContext.runAsync(() => {
+      'worklet'
+
+      try {
+        previousListener?.remove()
+        // The surface, swapchain or choreographer may have gone away while this job was queued
+        if (renderToken.value !== token || !isSurfaceAlive.value || !swapChain.isValid || !choreographer.isValid) {
+          return undefined
+        }
 
         // We need to create the function we pass to addFrameCallbackListener on the worklet thread, so that the
         // underlying JSI function is owned by that thread. Only then can we call it on the worklet thread when
         // the choreographer is calling its listeners.
-        return choreographer.addFrameCallbackListener((frameInfo) => {
+        const newListener = choreographer.addFrameCallbackListener((frameInfo) => {
           'worklet'
 
-          if (!swapChain.isValid) {
-            // TODO: Supposedly fixed in https://github.com/margelo/react-native-filament/pull/210, remove this once proven
-            reportWorkletError(
-              new Error(
-                '[react-native-filament] SwapChain is invalid, cannot render frame.\nThis should never happen, please report an issue with reproduction steps.'
-              )
-            )
-            return
-          }
+          if (renderToken.value !== token || failedRenderToken.value === token || !swapChain.isValid) return
 
           try {
             callback(frameInfo)
 
+            // The render callback may have released the swapchain
+            if (!swapChain.isValid) return
             if (renderer.beginFrame(swapChain, frameInfo.timestamp)) {
               renderer.render(view)
               renderer.endFrame()
             }
           } catch (error) {
-            reportWorkletError(error)
+            // Resources released by an unmount or a surface loss that this frame raced with
+            const isStale = renderToken.value !== token || !isSurfaceAlive.value
+            if (isStale && isReleasedPointerError(error)) return
+            failedRenderToken.value = token
+            if (choreographer.isValid) choreographer.stop()
+            reportWorkletError(error, true, contextId)
           }
         })
-      })
-    )
+        // Only start after the latest successful call for attaching a listener
+        if (!isPaused.value) choreographer.start()
+        return newListener
+      } catch (error) {
+        const isStale = renderToken.value !== token || !isSurfaceAlive.value
+        if (!(isStale && isReleasedPointerError(error))) reportWorkletError(error, true, contextId)
+        return undefined
+      }
+    })
+    if (listener == null) return
 
-    // It can happen that after the listener was set the surface got destroyed already:
-    if (!this.isComponentMounted || !this.isSurfaceAlive.value) {
-      Logger.debug('🚧 Component is already unmounted or surface is no longer alive, removing choreographer listener')
-      listener.remove()
-      return
-    }
-
-    // As setting the listener is async, we have to check updateRenderCallback was called meanwhile.
-    // In that case we have to assume that the listener we just set is not valid anymore:
-    if (currentToken !== this.latestToken) {
-      listener.remove()
+    // As setting the listener is async, the component might have unmounted, the surface might have been destroyed or
+    // updateRenderCallback might have been called again meanwhile. Then the listener we just set is stale:
+    if (!this.isComponentMounted || !this.isSurfaceAlive.value || token !== renderToken.value) {
+      Logger.debug('🚧 Render callback listener is stale, removing it')
+      runOnWorkletContext(
+        workletContext,
+        contextId,
+        () => {
+          'worklet'
+          listener.remove()
+        },
+        { ignoreReleased: true }
+      )
       return
     }
 
     this.renderCallbackListener = listener
+    // resume() skips starting while the listener is in flight, and the add job may have seen the view still paused
+    if (!this.isPaused.value && failedRenderToken.value !== token) choreographer.start()
     Logger.debug('Render callback set!')
-
-    // Calling this here ensures that only after the latest successful call for attaching a listener, the choreographer is started.
-    Logger.debug('Starting choreographer')
-    choreographer.start()
   }
 
   private getContext = () => {
@@ -160,6 +200,10 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     if (prevProps.enableTransparentRendering !== this.props.enableTransparentRendering) {
       this.updateTransparentRendering(this.props.enableTransparentRendering ?? true)
     }
+    if (prevProps.paused !== this.props.paused) {
+      if (this.props.paused) this.pause()
+      else this.resume()
+    }
     if (prevProps.renderCallback !== this.props.renderCallback && this.swapChain != null) {
       // Note: if swapChain was null, the renderCallback will be set/updated in onSurfaceCreated, which uses the latest renderCallback prop
       this.updateRenderCallback(this.props.renderCallback, this.swapChain)
@@ -171,13 +215,29 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
    */
   cleanupResources() {
     Logger.debug('Cleaning up resources')
-    const { choreographer } = this.getContext()
-    choreographer.stop()
-
-    this.renderCallbackListener?.remove()
+    const { choreographer, workletContext } = this.getContext()
     this.isSurfaceAlive.value = false
-    this.swapChain?.release()
-    this.swapChain = undefined // Note: important to set it to undefined, as this might be called twice (onSurfaceDestroyed and componentWillUnmount), and we can only release once
+    // Silences the current and any in-flight frame listener
+    this.renderToken.value++
+
+    // Stop, remove the listener and release the swapchain in one job on the render thread, so they are ordered with
+    // frames and with jobs that are already queued. Clearing the fields makes a second call (onSurfaceDestroyed and
+    // componentWillUnmount) a no-op.
+    const listener = this.renderCallbackListener
+    const swapChain = this.swapChain
+    this.renderCallbackListener = undefined
+    this.swapChain = undefined
+    runOnWorkletContext(
+      workletContext,
+      this.props.contextId ?? NO_CONTEXT_ID,
+      () => {
+        'worklet'
+        if (choreographer.isValid) choreographer.stop()
+        listener?.remove()
+        if (swapChain?.isValid) swapChain.release()
+      },
+      { ignoreReleased: true }
+    )
 
     // Unlink the view from the choreographer. The native view might be destroyed later, after another FilamentView is created using the same choreographer (and then it would stop the rendering)
     this.view?.setChoreographer(undefined)
@@ -196,7 +256,16 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     const context = this.getContext()
     const handle = this.handle
     Logger.debug('Finding FilamentView with handle', handle)
-    this.view = await FilamentProxy.findFilamentView(handle)
+    try {
+      this.view = await FilamentProxy.findFilamentView(handle)
+    } catch (error) {
+      if (!this.isComponentMounted) {
+        // The native view is already gone, nothing left to set up
+        Logger.debug('➡️ Component already unmounted, skipping setup')
+        return
+      }
+      throw error
+    }
     if (this.view == null) {
       throw new Error(`Failed to find FilamentView #${handle}!`)
     }
@@ -236,11 +305,13 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
   // This will be called once the surface is created and ready to draw on:
   private onSurfaceCreated = async (surfaceProvider: SurfaceProvider) => {
     Logger.debug('Surface created!')
+    const surfaceGeneration = ++this.surfaceGeneration
     const isSurfaceAlive = this.isSurfaceAlive
     isSurfaceAlive.value = true
     const { engine, workletContext } = this.getContext()
     // Create a swap chain …
     const enableTransparentRendering = this.props.enableTransparentRendering ?? true
+    const contextId = this.props.contextId ?? NO_CONTEXT_ID
     Logger.debug('Creating swap chain')
     const swapChain = await workletContext.runAsync(() => {
       'worklet'
@@ -250,29 +321,42 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
       }
 
       try {
-        return engine.createSwapChainForSurface(surfaceProvider, enableTransparentRendering)
+        const newSwapChain = engine.createSwapChainForSurface(surfaceProvider, enableTransparentRendering)
+        // Set on the render thread so it is ordered with the swapchain release, which runs there too
+        engine.setSwapChain(newSwapChain)
+        return newSwapChain
       } catch (error) {
         // Report this error as none-fatal. We only throw in createSwapChainForSurface if the surface is already released.
         // There is the chance of a race condition where the surface is destroyed but our JS onDestroy listener hasn't been called yet.
-        reportWorkletError(error, false)
+        reportWorkletError(error, false, contextId)
         return null
       }
     })
 
+    const isCurrentSurface = this.isComponentMounted && surfaceGeneration === this.surfaceGeneration && isSurfaceAlive.value
     if (swapChain == null) {
-      isSurfaceAlive.value = false
+      if (isCurrentSurface) isSurfaceAlive.value = false
       Logger.info('🚧 Swap chain is null, surface was already destroyed while we tried to create a swapchain from it.')
+      return
+    }
+    if (!isCurrentSurface) {
+      Logger.info('🚧 Surface was destroyed or the component unmounted while creating the swap chain, releasing it.')
+      runOnWorkletContext(
+        workletContext,
+        contextId,
+        () => {
+          'worklet'
+          if (swapChain.isValid) swapChain.release()
+        },
+        { ignoreReleased: true }
+      )
       return
     }
     this.swapChain = swapChain
 
-    // Apply the swapchain to the engine …
-    Logger.debug('Setting swap chain')
-    engine.setSwapChain(this.swapChain)
-
     // Set the render callback in the choreographer:
     const { renderCallback } = this.props
-    await this.updateRenderCallback(renderCallback, this.swapChain)
+    await this.updateRenderCallback(renderCallback, swapChain)
   }
 
   /**
@@ -281,7 +365,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
    */
   private onSurfaceDestroyed = () => {
     Logger.info('Surface destroyed!')
-    this.isSurfaceAlive.value = false
+    this.surfaceGeneration++
     this.cleanupResources()
   }
 
@@ -290,6 +374,7 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
    */
   public pause = (): void => {
     Logger.info('Pausing rendering')
+    this.isPaused.value = true
     const { choreographer } = this.getContext()
     choreographer.stop()
   }
@@ -300,6 +385,9 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
    */
   public resume = (): void => {
     Logger.info('Resuming rendering')
+    this.isPaused.value = false
+    // Without a listener there is nothing to render. A listener that is being added starts the choreographer itself.
+    if (this.renderCallbackListener == null) return
     const { choreographer } = this.getContext()
     choreographer.start()
   }

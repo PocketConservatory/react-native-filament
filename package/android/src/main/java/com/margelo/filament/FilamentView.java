@@ -2,6 +2,8 @@ package com.margelo.filament;
 
 import android.content.Context;
 import android.graphics.SurfaceTexture;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Surface;
@@ -26,6 +28,7 @@ import com.facebook.react.uimanager.events.EventDispatcher;
 public class FilamentView extends FrameLayout implements TextureView.SurfaceTextureListener {
 
     private static final String TAG = "FilamentView";
+    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     /**
      * @noinspection unused, FieldCanBeLocal
@@ -113,9 +116,17 @@ public class FilamentView extends FrameLayout implements TextureView.SurfaceText
 
     @Override
     public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surfaceTexture) {
-        surfaceProvider.onSurfaceDestroyed(surface);
+        Surface destroyedSurface = surface;
         surface = null;
-        return true;
+        // Filament's render thread may still use the surface. Native calls this back once it is done with it, and we
+        // release the surface and its texture ourselves (hence returning false).
+        surfaceProvider.onSurfaceDestroyed(destroyedSurface, () -> mainHandler.post(() -> {
+            if (destroyedSurface != null) {
+                destroyedSurface.release();
+            }
+            surfaceTexture.release();
+        }));
+        return false;
     }
 
     @Override

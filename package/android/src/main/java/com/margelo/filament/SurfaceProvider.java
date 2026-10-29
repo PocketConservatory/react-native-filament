@@ -26,5 +26,8 @@ public class SurfaceProvider {
 
     public native void onSurfaceChanged(Object surface, int width, int height);
 
-    public native void onSurfaceDestroyed(Object surface);
+    /**
+     * @param releaseSurface Called once Filament no longer uses the surface, possibly on another thread.
+     */
+    public native void onSurfaceDestroyed(Object surface, Runnable releaseSurface);
 }

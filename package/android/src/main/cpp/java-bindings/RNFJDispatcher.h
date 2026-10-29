@@ -30,7 +30,9 @@ private:
 
 private:
   std::queue<std::function<void()>> _jobs;
+  // Guards _jobs only.
   std::recursive_mutex _mutex;
+  std::mutex _runMutex;
   std::recursive_mutex _syncMutex;
 
 private:

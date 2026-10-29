@@ -17,8 +17,9 @@ public:
   explicit AppleChoreographer();
   ~AppleChoreographer();
 
-  void stop() override;
-  void start() override;
+protected:
+  void platformStop() override;
+  void platformStart() override;
 
 private:
   DisplayLinkListener* _displayLink;
