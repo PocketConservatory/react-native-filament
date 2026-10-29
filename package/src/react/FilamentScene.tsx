@@ -16,7 +16,13 @@ export type FilamentProviderProps = PropsWithChildren<
       fallback?: React.ReactElement
       /**
        * Receives errors from the scene's worklets and render loop on the JS thread, e.g. to show a fallback.
-       * Without it they are reported as fatal errors. An error in the render loop stops rendering and is reported once.
+       *
+       * - Without a handler, errors are reported as fatal errors, as without this prop.
+       * - With a handler, errors go to the handler and are not fatal. An error in the render loop stops rendering
+       *   and is reported once.
+       * - Errors from using an already released object during teardown are dropped.
+       * - Once a handler was set, the scene's errors stay non-fatal after it is removed, as errors can still
+       *   arrive after unmount. They are then reported with `ErrorUtils.reportError`.
        */
       onError?: FilamentErrorHandler
     }

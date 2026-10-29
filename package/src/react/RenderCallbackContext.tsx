@@ -2,7 +2,8 @@ import React, { createContext, DependencyList, PropsWithChildren, useCallback, u
 import { FrameInfo, RenderCallback } from 'react-native-filament'
 import { isWorklet } from 'react-native-worklets-core'
 import { useFilamentContext } from '../hooks/useFilamentContext'
-import { addErrorHandler, FilamentErrorHandler, runOnWorkletContext } from '../ErrorUtils'
+import { FilamentErrorHandler, runOnWorkletContext } from '../ErrorUtils'
+import { useErrorHandler } from '../hooks/internal/useErrorHandler'
 
 let nextContextId = 0
 let nextCallbackId = 0
@@ -45,17 +46,13 @@ export const makeRenderContext = () => {
   })
 
   /**
-   * @param onError Receives the errors of this context's worklets and render loop on the JS thread. Without it they
-   * are reported as fatal errors.
+   * @param onError See `FilamentScene`'s `onError`.
    */
   const RenderContextProvider = ({ children, onError }: PropsWithChildren<{ onError?: FilamentErrorHandler }>) => {
     const { workletContext } = useFilamentContext()
     const contextId = useMemo(() => nextContextId++, [])
 
-    useEffect(() => {
-      if (onError == null) return
-      return addErrorHandler(contextId, onError)
-    }, [contextId, onError])
+    useErrorHandler(contextId, onError)
 
     useEffect(() => {
       return () => {
