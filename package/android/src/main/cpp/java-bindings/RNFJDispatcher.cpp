@@ -7,8 +7,14 @@
 
 namespace margelo {
 
+// Both the destructor and scheduleTrigger() can run on threads the JVM knows nothing about, e.g. Hermes'
+// GC thread ("hades") finalizing a wrapper that holds the last reference to a Filament resource. The
+// resource deleter then calls runAsync() from that thread, so every JNI call here needs a ThreadScope.
 JDispatcher::~JDispatcher() {
-  __android_log_print(ANDROID_LOG_INFO, "JDispatcher", "Destructor called");
+  jni::ThreadScope::WithClassLoader([&]() {
+    __android_log_print(ANDROID_LOG_INFO, "JDispatcher", "Destructor called");
+    _javaPart = nullptr;
+  });
 }
 
 JDispatcher::JDispatcher(const jni::alias_ref<jhybridobject>& javaThis) : _javaPart(jni::make_global(javaThis)) {}
@@ -22,7 +28,6 @@ void JDispatcher::registerNatives() {
 }
 
 void JDispatcher::scheduleTrigger() {
-  // Resource deleters can dispatch from Hermes GC threads that are not attached to JNI.
   jni::ThreadScope::WithClassLoader([&]() {
     static const auto method = javaClassLocal()->getMethod<void()>("scheduleTrigger");
     method(_javaPart);
