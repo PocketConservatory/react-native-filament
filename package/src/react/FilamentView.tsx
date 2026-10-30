@@ -316,7 +316,9 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
     const swapChain = await workletContext.runAsync(() => {
       'worklet'
 
-      if (!isSurfaceAlive.value) {
+      // The platform destroys the surface on the UI thread, possibly before our JS onDestroy listener has run.
+      // Losing the surface while this job was queued is teardown, not an error.
+      if (!isSurfaceAlive.value || surfaceProvider.getSurface() == null) {
         return null
       }
 
@@ -326,8 +328,8 @@ export class FilamentView extends React.PureComponent<FilamentProps> {
         engine.setSwapChain(newSwapChain)
         return newSwapChain
       } catch (error) {
-        // Report this error as none-fatal. We only throw in createSwapChainForSurface if the surface is already released.
-        // There is the chance of a race condition where the surface is destroyed but our JS onDestroy listener hasn't been called yet.
+        // The surface can also be destroyed while the swapchain is being created
+        if (surfaceProvider.getSurface() == null) return null
         reportWorkletError(error, false, contextId)
         return null
       }

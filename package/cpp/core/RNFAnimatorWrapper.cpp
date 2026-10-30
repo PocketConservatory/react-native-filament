@@ -46,6 +46,7 @@ inline void assertInstanceNotNull(FilamentInstance* instance) {
 
 void AnimatorWrapper::applyAnimation(int animationIndex, double time) {
   std::unique_lock lock(_mutex);
+  auto asset = lockAsset(_asset);
   assertAnimatorNotNull(_animator);
   assertAnimationIndexSmallerThan(animationIndex, _animator->getAnimationCount());
   _animator->applyAnimation(animationIndex, time);
@@ -53,6 +54,7 @@ void AnimatorWrapper::applyAnimation(int animationIndex, double time) {
 
 void AnimatorWrapper::updateBoneMatrices() {
   std::unique_lock lock(_mutex);
+  auto asset = lockAsset(_asset);
   assertAnimatorNotNull(_animator);
   _animator->updateBoneMatrices();
   syncInstances();
@@ -60,6 +62,7 @@ void AnimatorWrapper::updateBoneMatrices() {
 
 void AnimatorWrapper::applyCrossFade(int previousAnimationIndex, double previousAnimationTime, double alpha) {
   std::unique_lock lock(_mutex);
+  auto asset = lockAsset(_asset);
   assertAnimatorNotNull(_animator);
   assertAnimationIndexSmallerThan(previousAnimationIndex, _animator->getAnimationCount());
   _animator->applyCrossFade(previousAnimationIndex, previousAnimationTime, alpha);
@@ -67,6 +70,7 @@ void AnimatorWrapper::applyCrossFade(int previousAnimationIndex, double previous
 
 void AnimatorWrapper::resetBoneMatrices() {
   std::unique_lock lock(_mutex);
+  auto asset = lockAsset(_asset);
   assertAnimatorNotNull(_animator);
   _animator->resetBoneMatrices();
   syncInstances();
@@ -74,18 +78,21 @@ void AnimatorWrapper::resetBoneMatrices() {
 
 int AnimatorWrapper::getAnimationCount() {
   std::unique_lock lock(_mutex);
+  auto asset = lockAsset(_asset);
   assertAnimatorNotNull(_animator);
   return _animator->getAnimationCount();
 }
 
 double AnimatorWrapper::getAnimationDuration(int animationIndex) {
   std::unique_lock lock(_mutex);
+  auto asset = lockAsset(_asset);
   assertAnimatorNotNull(_animator);
   return _animator->getAnimationDuration(animationIndex);
 }
 
 std::string AnimatorWrapper::getAnimationName(int animationIndex) {
   std::unique_lock lock(_mutex);
+  auto asset = lockAsset(_asset);
   assertAnimatorNotNull(_animator);
   return _animator->getAnimationName(animationIndex);
 }

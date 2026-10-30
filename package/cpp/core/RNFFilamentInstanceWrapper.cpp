@@ -18,11 +18,13 @@ void FilamentInstanceWrapper::loadHybridMethods() {
 }
 
 int FilamentInstanceWrapper::getEntityCount() {
+  auto asset = lockAsset(_asset);
   size_t count = _instance->getEntityCount();
   return static_cast<int>(count);
 }
 
 std::vector<std::shared_ptr<EntityWrapper>> FilamentInstanceWrapper::getEntities() {
+  auto asset = lockAsset(_asset);
   std::vector<std::shared_ptr<EntityWrapper>> entities;
   const Entity* entityArray = _instance->getEntities();
   size_t entityCount = _instance->getEntityCount();
@@ -33,17 +35,20 @@ std::vector<std::shared_ptr<EntityWrapper>> FilamentInstanceWrapper::getEntities
 }
 
 std::shared_ptr<EntityWrapper> FilamentInstanceWrapper::getRoot() {
+  auto asset = lockAsset(_asset);
   Entity rootEntity = _instance->getRoot();
   return std::make_shared<EntityWrapper>(rootEntity);
 }
 
 std::shared_ptr<AnimatorWrapper>
 FilamentInstanceWrapper::createAnimator(std::shared_ptr<NameComponentManagerWrapper> nameComponentManager) {
+  auto asset = lockAsset(_asset);
   Animator* animator = _instance->getAnimator();
   std::shared_ptr<NameComponentManager> manager = nameComponentManager->getManager();
-  return std::make_shared<AnimatorWrapper>(animator, _instance, manager, _asset);
+  return std::make_shared<AnimatorWrapper>(animator, _instance, manager, asset);
 }
 std::shared_ptr<AABBWrapper> FilamentInstanceWrapper::getBoundingBox() {
+  auto asset = lockAsset(_asset);
   auto box = _instance->getBoundingBox();
   return std::make_shared<AABBWrapper>(box);
 }
